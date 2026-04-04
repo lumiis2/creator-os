@@ -18,13 +18,6 @@ export const authConfig = {
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID ?? "",
       clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
-      authorization: {
-        params: {
-          scope: "openid email profile https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/yt-analytics.readonly",
-          access_type: "offline",
-          prompt: "consent",
-        },
-      },
     }),
     Credentials({
       authorize: async (credentials: Record<string, unknown> | undefined) => {
@@ -95,7 +88,12 @@ export const authConfig = {
           ensuredUserId = user.id;
         }
 
-        if (ensuredUserId && account.access_token) {
+        const hasYouTubeScope = !!account.scope && (
+          account.scope.includes("https://www.googleapis.com/auth/youtube.readonly") ||
+          account.scope.includes("https://www.googleapis.com/auth/yt-analytics.readonly")
+        );
+
+        if (ensuredUserId && account.access_token && hasYouTubeScope) {
           const refreshToken = account.refresh_token ?? null;
           const expiresAt = account.expires_at ? new Date(account.expires_at * 1000) : null;
           const scopes = account.scope ? account.scope.split(" ").filter(Boolean) : null;

@@ -4,6 +4,7 @@ import { requireAuth } from "@/lib/auth";
 import { redis } from "@/lib/redis";
 import { listVideos } from "@creator-os/db/queries/analytics";
 import type { VideoMetric } from "@creator-os/db";
+import { db, eq, platformConnections } from "@creator-os/db";
 
 interface VideosResponse {
   data: VideoMetric[];
@@ -30,6 +31,16 @@ export async function GET(req: NextRequest) {
   const parsed = QuerySchema.safeParse(Object.fromEntries(req.nextUrl.searchParams.entries()));
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid query" }, { status: 400 });
+  }
+
+  const connection = await db.query.platformConnections.findFirst({
+    where: eq(platformConnections.userId, session.userId),
+  });
+  const hasYouTubeScopes = (connection?.scopes ?? []).some(
+    (scope: string) => scope === "https://www.googleapis.com/auth/youtube.readonly" || scope === "https://www.googleapis.com/auth/yt-analytics.readonly",
+  );
+  if (!connection || !hasYouTubeScopes) {
+    return NextResponse.json({ data: [], pagination: { limit: parsed.data.limit, offset: parsed.data.offset, count: 0 } });
   }
 
   const { limit, offset, sort, direction } = parsed.data;
