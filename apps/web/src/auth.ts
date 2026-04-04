@@ -11,6 +11,15 @@ const credentialsSchema = z.object({
   password: z.string().min(8),
 });
 
+function fallbackDisplayNameFromEmail(email: string) {
+  const local = email.split("@")[0] ?? "Creator";
+  return local
+    .replace(/[._-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (c) => c.toUpperCase()) || "Creator";
+}
+
 export const authConfig = {
   trustHost: true,
   session: { strategy: "jwt" },
@@ -88,6 +97,25 @@ export const authConfig = {
           ensuredUserId = user.id;
         }
 
+        if (ensuredUserId) {
+          const creatorProfile = await db.query.creatorProfiles.findFirst({
+            where: eq(creatorProfiles.userId, ensuredUserId),
+          });
+
+          const displayNameCandidate = profile.name?.trim() || fallbackDisplayNameFromEmail(profile.email);
+          if (!creatorProfile) {
+            await db.insert(creatorProfiles).values({
+              userId: ensuredUserId,
+              displayName: displayNameCandidate,
+              onboardingDone: false,
+            }).onConflictDoNothing();
+          } else if (!creatorProfile.displayName || !creatorProfile.displayName.trim()) {
+            await db.update(creatorProfiles)
+              .set({ displayName: displayNameCandidate, updatedAt: new Date() })
+              .where(eq(creatorProfiles.userId, ensuredUserId));
+          }
+        }
+
         const hasYouTubeScope = !!account.scope && (
           account.scope.includes("https://www.googleapis.com/auth/youtube.readonly") ||
           account.scope.includes("https://www.googleapis.com/auth/yt-analytics.readonly")
@@ -131,6 +159,27 @@ export const authConfig = {
               syncStatus: "idle",
             });
           }
+        }
+      }
+
+      if (account?.provider === "credentials" && user?.id) {
+        const creatorProfile = await db.query.creatorProfiles.findFirst({
+          where: eq(creatorProfiles.userId, user.id),
+        });
+
+        if (!creatorProfile) {
+          await db.insert(creatorProfiles).values({
+            userId: user.id,
+            displayName: user.email ? fallbackDisplayNameFromEmail(user.email) : "Creator",
+            onboardingDone: false,
+          }).onConflictDoNothing();
+        } else if (!creatorProfile.displayName || !creatorProfile.displayName.trim()) {
+          await db.update(creatorProfiles)
+            .set({
+              displayName: user.email ? fallbackDisplayNameFromEmail(user.email) : "Creator",
+              updatedAt: new Date(),
+            })
+            .where(eq(creatorProfiles.userId, user.id));
         }
       }
 
