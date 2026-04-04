@@ -38,6 +38,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "No connection found" }, { status: 404 });
   }
 
+  const hasYouTubeScopes = (connection.scopes ?? []).some(
+    (scope: string) => scope === "https://www.googleapis.com/auth/youtube.readonly" || scope === "https://www.googleapis.com/auth/yt-analytics.readonly",
+  );
+  if (!hasYouTubeScopes) {
+    return NextResponse.json(
+      { error: "Connection missing YouTube scopes. Reconnect your account from Profile > Connect YouTube." },
+      { status: 412 },
+    );
+  }
+
   const runSyncInline = async () => {
     await db.update(platformConnections)
       .set({ syncStatus: "syncing", syncError: null })

@@ -3,6 +3,7 @@ import { requireAuth } from "@/lib/auth";
 import { redis } from "@/lib/redis";
 import { getLatestSnapshot, getPreviousSnapshot } from "@creator-os/db/queries/analytics";
 import { buildAnalyticsSummary } from "@/lib/analytics/compute";
+import { db, eq, platformConnections } from "@creator-os/db";
 
 interface SnapshotResponse {
   data: {
@@ -31,6 +32,16 @@ export async function GET() {
   const cached = await redis.get<SnapshotResponse>(cacheKey);
   if (cached) {
     return NextResponse.json(cached);
+  }
+
+  const connection = await db.query.platformConnections.findFirst({
+    where: eq(platformConnections.userId, session.userId),
+  });
+  const hasYouTubeScopes = (connection?.scopes ?? []).some(
+    (scope: string) => scope === "https://www.googleapis.com/auth/youtube.readonly" || scope === "https://www.googleapis.com/auth/yt-analytics.readonly",
+  );
+  if (!connection || !hasYouTubeScopes) {
+    return NextResponse.json({ data: null, syncedAt: null, synced: false });
   }
 
   const latest = await getLatestSnapshot(session.userId);

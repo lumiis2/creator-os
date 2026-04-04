@@ -1,5 +1,6 @@
 "use client";
 
+import { signIn } from "next-auth/react";
 import { useState } from "react";
 import type { Connection } from "@/hooks/use-profile";
 
@@ -12,17 +13,19 @@ export function ConnectedAccounts({ connections }: ConnectedAccountsProps) {
 
   const connectYouTube = async () => {
     setConnectError(null);
-    const res = await fetch("/api/profile/connections?callbackUrl=/profile", {
-      method: "POST",
-    });
-
-    const body = await res.json().catch(() => null) as { connectUrl?: string; error?: string } | null;
-    if (!res.ok || !body?.connectUrl) {
-      setConnectError(body?.error ?? "Failed to start YouTube connection");
-      return;
+    try {
+      await signIn(
+        "google",
+        { callbackUrl: "/profile" },
+        {
+          scope: "openid email profile https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/yt-analytics.readonly",
+          access_type: "offline",
+          prompt: "consent",
+        },
+      );
+    } catch {
+      setConnectError("Failed to start YouTube connection");
     }
-
-    window.location.href = body.connectUrl;
   };
 
   return (
