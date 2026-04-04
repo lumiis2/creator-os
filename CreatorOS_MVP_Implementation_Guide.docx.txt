@@ -1,0 +1,1419 @@
+﻿CreatorOS
+MVP Architecture & Implementation Guide
+Senior Engineering Reference · Phase 1 Build
+March 2026
+	
+
+1. Architecture Overview
+CreatorOS MVP uses a monorepo with three deployment targets: a Next.js app (Vercel), a background worker process (Railway), and a managed Postgres database (Neon). The AI layer is stateless — it reads context from the database on each request and streams tokens back to the client. No separate AI server is required.
+
+
+1.1 System diagram (logical)
+┌─────────────────────────────────────────────────────────┐
+│                  Browser (Next.js App)                  │
+│   Dashboard │ Chat │ Workspace │ Profile │ Onboarding   │
+└──────────────────────┬──────────────────────────────────┘
+                       │ HTTPS / SSE (streaming)           
+┌──────────────────────▼──────────────────────────────────┐
+│               Next.js API Routes (Edge/Node)            │
+│  /api/auth  /api/analytics  /api/chat  /api/workspace   │
+└──────┬───────────────┬───────────────────┬─────────────┘
+       │               │                   │              
+  ┌────▼────┐    ┌─────▼─────┐      ┌─────▼──────┐      
+  │  Neon   │    │  Upstash  │      │ Anthropic  │      
+  │Postgres │    │  Redis    │      │  Claude    │      
+  │+pgvector│    │(cache+RL) │      │  API (SSE) │      
+  └─────────┘    └─────────┬─┘     └────────────┘      
+                           │                             
+  ┌────────────────────────▼────────────────────────┐   
+  │          Railway — Background Worker             │   
+  │  BullMQ: YouTube sync jobs · Cron: daily snaps  │   
+  └─────────────────────────────────────────────────┘   
+	
+
+1.2 Data flow — chat request
+User types message
+      │
+      ▼
+POST /api/chat/stream
+      │
+      ├─ 1. Auth middleware: validate JWT session
+      ├─ 2. Rate limiter: check token budget (Redis)
+      ├─ 3. Context builder:
+      │       ├─ Load creator_profile from Postgres
+      │       ├─ Load analytics summary (last 7 days) from Postgres
+      │       └─ Load last 20 chat_messages for this session
+      ├─ 4. Build system prompt (deterministic, no AI)
+      ├─ 5. Call Anthropic claude-sonnet-4-6 with streamText()
+      ├─ 6. Stream SSE tokens → browser
+      └─ 7. On complete: persist assistant message + token count
+	
+
+1.3 Data flow — analytics sync
+Trigger: user clicks "Sync now" OR cron fires at 06:00 UTC
+      │
+      ▼
+POST /api/analytics/sync  (or BullMQ job)
+      │
+      ├─ 1. Load platform_connection (decrypt access_token)
+      ├─ 2. Call YouTube Data API v3 + YouTube Analytics API
+      ├─ 3. Parse & validate raw response (Zod)
+      ├─ 4. Compute derived metrics DETERMINISTICALLY:
+      │       engagement_rate = (likes+comments+shares) / views
+      │       follower_growth_rate = (current - previous) / previous
+      ├─ 5. Upsert analytics_snapshot row in Postgres
+      ├─ 6. Upsert video_metric rows in Postgres
+      └─ 7. Invalidate Redis cache key for this user's dashboard
+	
+
+2. Tech Stack — Confirmed
+
+
+Component
+	Technology
+	Justification
+	Framework
+	Next.js 15 (App Router)
+	SSR + API routes + streaming in one repo. Server components fetch DB directly.
+	Language
+	TypeScript 5
+	Full end-to-end type safety. Zod for runtime validation at API boundaries.
+	Styling
+	Tailwind CSS + shadcn/ui
+	Owned component source. Production-quality UI (dialogs, toasts, sheets) without a library lock-in.
+	Charts
+	Recharts
+	React-native SVG charts. Sufficient for MVP; swap to Nivo if customisation demands grow.
+	State
+	Zustand + TanStack Query
+	Zustand for client state (timer, draft). TanStack Query for server cache with stale-while-revalidate.
+	Database
+	PostgreSQL 16 on Neon
+	Serverless connection pooling for Next.js. pgvector extension for future RAG embeddings.
+	ORM
+	Drizzle ORM
+	Type-safe SQL, schema-first, lightweight. No binary query engine — fast cold starts.
+	Cache/Queue
+	Redis on Upstash
+	Serverless Redis. Dual use: BullMQ job queue + response cache + rate limiting.
+	Background
+	BullMQ on Railway
+	Persistent worker process for YouTube sync jobs. Cannot run on Vercel serverless.
+	Auth
+	Auth.js v5 (NextAuth)
+	Built-in OAuth + credentials. Adapts to Drizzle. Handles session management.
+	AI — Chat
+	Claude claude-sonnet-4-6 via Vercel AI SDK
+	Best instruction-following. Prompt caching cuts costs 80% on static system prompt portions.
+	AI — Lightweight
+	claude-haiku-4-5-20251001
+	Use for dashboard annotation summaries. 10× cheaper than Sonnet.
+	Encryption
+	AWS KMS
+	Encrypt OAuth tokens at rest. Never store raw platform tokens in DB.
+	Payments
+	Stripe Billing
+	Subscription management, Customer Portal, metered AI token overages.
+	Monitoring
+	Sentry + PostHog
+	Errors + product analytics. PostHog self-hostable for GDPR.
+	Deployment
+	Vercel (app) + Railway (worker)
+	Vercel for serverless Next.js. Railway for the persistent BullMQ worker.
+	
+
+Key trade-off: monorepo vs. separate services
+MVP uses a single Next.js monorepo with one Railway worker. This is intentional — you ship faster, debug
+faster, and share types between frontend and backend without an extra API layer. Extract microservices
+only when you have a concrete scaling bottleneck. The folder structure below already isolates concerns
+so the extraction path is clean when needed.
+	
+
+3. Project Structure
+
+
+3.1 Monorepo root
+creator-os/
+├── apps/
+│   ├── web/                   # Next.js application (Vercel)
+│   └── worker/                # BullMQ background jobs (Railway)
+├── packages/
+│   ├── db/                    # Drizzle schema + migrations + query helpers
+│   ├── types/                 # Shared TypeScript types & Zod schemas
+│   └── config/                # Shared ESLint, TypeScript, Tailwind configs
+├── package.json               # Workspace root (pnpm workspaces)
+├── pnpm-workspace.yaml
+└── turbo.json                 # Turborepo build pipeline
+	
+
+3.2 apps/web — Next.js application
+apps/web/
+├── src/
+│   ├── app/                           # Next.js App Router
+│   │   ├── (auth)/                    # Route group — no shell layout
+│   │   │   ├── login/page.tsx
+│   │   │   ├── register/page.tsx
+│   │   │   └── onboarding/page.tsx
+│   │   ├── (app)/                     # Route group — authenticated shell
+│   │   │   ├── layout.tsx             # App shell: sidebar + topbar
+│   │   │   ├── dashboard/page.tsx
+│   │   │   ├── chat/page.tsx
+│   │   │   ├── workspace/page.tsx
+│   │   │   └── profile/page.tsx
+│   │   ├── api/                       # API routes (Next.js Route Handlers)
+│   │   │   ├── auth/[...nextauth]/route.ts
+│   │   │   ├── analytics/
+│   │   │   │   ├── snapshot/route.ts  # GET: fetch computed snapshot
+│   │   │   │   └── sync/route.ts      # POST: trigger manual sync
+│   │   │   ├── chat/
+│   │   │   │   ├── stream/route.ts    # POST: streaming chat endpoint
+│   │   │   │   └── history/route.ts   # GET: paginated message history
+│   │   │   ├── workspace/
+│   │   │   │   └── items/route.ts     # GET/POST/PATCH/DELETE items
+│   │   │   └── profile/
+│   │   │       └── route.ts           # GET/PATCH creator profile
+│   │   ├── layout.tsx                 # Root layout (fonts, providers)
+│   │   └── globals.css
+│   │
+│   ├── components/                    # React components
+│   │   ├── ui/                        # shadcn/ui primitives (Button, Dialog…)
+│   │   ├── layout/                    # AppShell, Sidebar, Topbar
+│   │   ├── dashboard/                 # KpiCard, ViewsChart, VideoTable…
+│   │   ├── chat/                      # ChatWindow, MessageBubble, ChatInput
+│   │   ├── workspace/                 # ItemList, ItemCard, NewItemDialog
+│   │   ├── profile/                   # ProfileForm, ConnectedAccounts
+│   │   └── onboarding/                # OnboardingWizard, StepIndicator
+│   │
+│   ├── lib/                           # Pure utility code
+│   │   ├── auth.ts                    # Auth.js config & helpers
+│   │   ├── redis.ts                   # Upstash Redis client singleton
+│   │   ├── ai/                        # AI layer
+│   │   │   ├── context-builder.ts     # Assembles system prompt context
+│   │   │   ├── prompt-templates.ts    # System prompt string builders
+│   │   │   └── token-budget.ts        # Budget check & enforcement
+│   │   ├── analytics/                 # Analytics processing (NO AI)
+│   │   │   ├── youtube.ts             # YouTube API client wrapper
+│   │   │   ├── normalise.ts           # Raw API → DB schema transform
+│   │   │   └── compute.ts             # Deterministic metric calculations
+│   │   └── utils.ts                   # cn(), formatNumber(), etc.
+│   │
+│   ├── hooks/                         # Custom React hooks
+│   │   ├── use-analytics.ts           # TanStack Query: analytics data
+│   │   ├── use-chat.ts                # Chat state + SSE streaming
+│   │   └── use-workspace.ts           # Workspace CRUD
+│   │
+│   └── stores/                        # Zustand stores
+│       └── timer.ts                   # (stub for Phase 2 time tracker)
+│
+├── public/
+├── next.config.ts
+├── tailwind.config.ts
+└── tsconfig.json
+	
+
+3.3 apps/worker — Background jobs
+apps/worker/
+├── src/
+│   ├── index.ts               # Entry point: register workers, start queues
+│   ├── queues/
+│   │   └── analytics.ts       # BullMQ queue definition
+│   ├── workers/
+│   │   └── youtube-sync.ts    # Job processor: fetch → normalise → upsert
+│   └── schedulers/
+│       └── daily-snapshot.ts  # Cron: 06:00 UTC daily sync for all users
+├── package.json
+└── tsconfig.json
+	
+
+3.4 packages/db — Database layer
+packages/db/
+├── src/
+│   ├── schema/                # Drizzle table definitions (one file per domain)
+│   │   ├── users.ts
+│   │   ├── profiles.ts
+│   │   ├── connections.ts
+│   │   ├── analytics.ts
+│   │   ├── chat.ts
+│   │   └── workspace.ts
+│   ├── migrations/            # Auto-generated SQL migrations
+│   ├── queries/               # Typed query helpers (no raw SQL in app code)
+│   │   ├── analytics.ts
+│   │   ├── chat.ts
+│   │   └── workspace.ts
+│   └── index.ts               # DB client + re-exports
+├── drizzle.config.ts
+└── package.json
+	
+
+4. MVP Scope — Strict Boundaries
+
+
+4.1 In scope (Phase 1)
+* User authentication (email/password + Google OAuth)
+* Guided onboarding wizard (niche, content style, posting goals)
+* Creator profile CRUD with all AI-relevant fields
+* YouTube OAuth connection + analytics sync
+* Dashboard: KPI cards, views trend chart, top videos table
+* AI chat agent with profile context + analytics injection + history
+* Simple workspace: create / edit / delete items with stage field (idea / draft / script)
+* Token budget enforcement (Redis counter, plan limit check)
+* Stripe Billing: Starter (free) + Creator Pro ($12) subscription setup
+
+
+4.2 Explicitly out of scope (Phase 1)
+* TikTok / Instagram integration — API access too restricted; CSV import is Phase 3
+* Kanban drag-and-drop pipeline — Phase 2; flat list is sufficient for MVP
+* Time tracker — Phase 2
+* AI insight layer in dashboard — Phase 3
+* Autonomous niche research — Phase 2 (Tavily integration)
+* Video analysis / image analysis — Phase 3
+* Script-to-video performance linking — Phase 2
+* RAG / vector embeddings — pgvector column stubbed in schema; populated in Phase 2
+
+
+Design principle: stub, don't skip
+For every out-of-scope feature, the database column or API route stub is created NOW with a
+"not implemented" 501 response. This means Phase 2 work is additive, never requiring a schema migration
+to add a column that should have been there from day 1.
+	
+
+5. Backend Design
+
+
+5.1 API Routes
+Authentication
+Method
+	Route
+	Description
+	POST
+	/api/auth/register
+	Create user account with email + hashed password
+	POST
+	/api/auth/[...nextauth]
+	Auth.js handler — login, OAuth callbacks, session
+	DELETE
+	/api/auth/session
+	Sign out — invalidate session
+	
+
+Profile
+Method
+	Route
+	Description
+	GET
+	/api/profile
+	Fetch authenticated user's creator profile
+	PATCH
+	/api/profile
+	Update profile fields (niche, style, goals, agent_mode)
+	GET
+	/api/profile/connections
+	List platform connections with status + last_synced_at
+	POST
+	/api/profile/connections
+	Initiate YouTube OAuth flow — returns redirect URL
+	DELETE
+	/api/profile/connections/:id
+	Disconnect a platform account
+	
+
+Analytics
+Method
+	Route
+	Description
+	GET
+	/api/analytics/snapshot
+	Fetch latest analytics snapshot (cached, with freshness timestamp)
+	GET
+	/api/analytics/videos
+	List video metrics with sorting + pagination
+	POST
+	/api/analytics/sync
+	Trigger manual YouTube sync — enqueues BullMQ job
+	GET
+	/api/analytics/sync/status
+	Poll sync job status (pending / active / completed / failed)
+	
+
+Chat
+Method
+	Route
+	Description
+	POST
+	/api/chat/stream
+	Streaming chat endpoint — returns SSE. Core AI route.
+	GET
+	/api/chat/sessions
+	List chat sessions for current user
+	GET
+	/api/chat/sessions/:id/messages
+	Paginated message history for a session
+	POST
+	/api/chat/sessions
+	Create a new chat session
+	
+
+Workspace
+Method
+	Route
+	Description
+	GET
+	/api/workspace/items
+	List items (filter by stage, search query)
+	POST
+	/api/workspace/items
+	Create new workspace item
+	PATCH
+	/api/workspace/items/:id
+	Update item (title, body, stage)
+	DELETE
+	/api/workspace/items/:id
+	Soft-delete item
+	
+
+5.2 Service layer architecture
+Each domain has a service module that the API routes call. API routes handle only HTTP concerns (parsing, auth, response). Services handle business logic.
+
+
+// Pattern — every API route follows this shape:
+// apps/web/src/app/api/analytics/snapshot/route.ts
+
+
+import { NextRequest, NextResponse } from "next/server";
+import { requireAuth } from "@/lib/auth";
+import { getAnalyticsSummary } from "@/lib/analytics/compute";
+import { getLatestSnapshot } from "@creator-os/db/queries/analytics";
+
+
+export async function GET(req: NextRequest) {
+  // 1. Auth
+  const session = await requireAuth(req);
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+
+  // 2. Fetch data (deterministic — no AI)
+  const snapshot = await getLatestSnapshot(session.userId);
+  if (!snapshot) return NextResponse.json({ data: null, synced: false });
+
+
+  // 3. Compute derived metrics (pure functions)
+  const summary = getAnalyticsSummary(snapshot);
+
+
+  // 4. Return
+  return NextResponse.json({ data: summary, syncedAt: snapshot.createdAt });
+}
+	
+
+5.3 Analytics processing — deterministic rules
+CRITICAL: No AI in analytics computation
+Every metric shown in the dashboard is computed by pure TypeScript functions from raw Postgres data.
+The LLM never touches numbers. If a metric cannot be computed deterministically, it is shown as null,
+never estimated or hallucinated.
+	
+
+Metrics computed in lib/analytics/compute.ts:
+* engagement_rate: (likes + comments + shares) / views * 100 — returns null if views === 0
+* follower_growth_rate: (current_followers - prev_followers) / prev_followers * 100
+* avg_views_7d: SUM(views) / COUNT(videos) WHERE published_at > now() - 7 days
+* top_videos: ORDER BY views DESC LIMIT 5 — pure SQL, no scoring model
+* best_posting_day: GROUP BY EXTRACT(DOW FROM published_at) — deterministic aggregation
+
+
+6. Frontend Design
+
+
+6.1 Routing & pages
+Route
+	Purpose
+	/login
+	Auth.js login form. Redirect to /dashboard if session exists.
+	/register
+	Email + password registration. Auto-sign-in on success.
+	/onboarding
+	3-step wizard: niche → content style → connect YouTube. Gated until complete.
+	/dashboard
+	KPI cards + views chart + top videos table. Daily-cached data.
+	/chat
+	Full-page chat interface. SSE streaming. Session selector sidebar.
+	/workspace
+	Flat list of items grouped by stage. New item dialog. Edit slide-over.
+	/profile
+	Profile form + connected accounts + plan/billing info.
+	
+
+6.2 Component tree
+RootLayout (fonts, QueryProvider, SessionProvider)
+├── (auth) — no shell
+│   ├── LoginPage
+│   ├── RegisterPage
+│   └── OnboardingPage
+│       └── OnboardingWizard
+│           ├── StepNiche         (niche + sub-niche text inputs)
+│           ├── StepContentStyle  (checkbox grid)
+│           └── StepConnectYouTube (OAuth button + status)
+│
+└── (app) — AppShell
+    ├── Sidebar (nav links, user avatar, plan badge)
+    ├── Topbar  (sync status, notifications placeholder)
+    │
+    ├── DashboardPage
+    │   ├── KpiGrid
+    │   │   └── KpiCard × 4 (views, followers, engagement, videos)
+    │   ├── ViewsTrendChart    (Recharts LineChart — 30-day views)
+    │   ├── FollowerGrowthChart(Recharts AreaChart)
+    │   └── TopVideosTable     (sortable, with thumbnail + metrics)
+    │
+    ├── ChatPage
+    │   ├── SessionList        (sidebar: past sessions)
+    │   ├── ChatWindow
+    │   │   ├── MessageList
+    │   │   │   ├── UserBubble
+    │   │   │   └── AssistantBubble (markdown rendered + SaveToWorkspace btn)
+    │   │   └── ChatInput      (textarea + send button + token usage bar)
+    │   └── SaveToWorkspaceDialog
+    │
+    ├── WorkspacePage
+    │   ├── StageFilter        (All | Idea | Draft | Script)
+    │   ├── ItemGrid
+    │   │   └── ItemCard × N   (title, stage badge, excerpt, edit/delete)
+    │   └── ItemEditorDialog   (title + body textarea + stage selector)
+    │
+    └── ProfilePage
+        ├── ProfileForm        (niche, style, goals, agent_mode toggle)
+        └── ConnectedAccounts  (YouTube tile: connected/sync/disconnect)
+	
+
+6.3 State management
+Server state (TanStack Query)
+	Analytics snapshot, video list, workspace items, chat history. Cache with stale-while-revalidate. Optimistic updates on workspace mutations.
+	Client state (Zustand)
+	Active chat session ID, in-flight message content (streaming), draft workspace item being edited.
+	Form state (React Hook Form)
+	Profile form, new workspace item dialog, onboarding wizard steps.
+	URL state
+	Active workspace stage filter (?stage=draft), chat session (?session=uuid). Deep-linkable.
+	Auth state (Auth.js session)
+	useSession() hook. Redirect middleware in middleware.ts protects all (app) routes.
+	
+
+6.4 Key design decisions
+* No client-side analytics computation. All charts receive pre-computed data from the API. The frontend only renders numbers; it never calculates them.
+* SSE not WebSockets for chat. Server-Sent Events via the Vercel AI SDK streamText() response. Simpler infrastructure, no persistent connection server needed.
+* Markdown rendering in chat. Use react-markdown + remark-gfm for assistant messages. Creators frequently receive formatted responses (bullet lists, headers).
+* Skeleton loaders everywhere. TanStack Query's isLoading state drives Skeleton components. No empty white screens.
+
+
+7. AI System Design
+
+
+7.1 System prompt architecture
+The system prompt is assembled fresh on every request by context-builder.ts. It has four sections concatenated in order. The first two sections (identity + profile) qualify for Anthropic prompt caching — they change at most once per user per day.
+
+
+┌─────────────────────────────────────────────────────────────────┐
+│ SECTION 1 — IDENTITY (static, ~400 tokens)                      │
+│ Cacheable ✓                                                     │
+│                                                                 │
+│ You are a professional social media growth advisor…             │
+│ Rules: only discuss social media + content creation…            │
+│ If off-topic: redirect politely, never lecture.                 │
+├─────────────────────────────────────────────────────────────────┤
+│ SECTION 2 — CREATOR PROFILE (semi-static, ~200 tokens)         │
+│ Cacheable ✓ (regenerates when profile changes)                  │
+│                                                                 │
+│ Creator: {display_name}                                         │
+│ Niche: {niche} / {sub_niche}                                    │
+│ Content style: {content_style[]}                                │
+│ Audience: {audience_description}                                │
+│ Posting goal: {posting_goal_freq}x per week                     │
+│ Mode: {agent_mode} (proactive | passive)                        │
+├─────────────────────────────────────────────────────────────────┤
+│ SECTION 3 — ANALYTICS CONTEXT (dynamic, ~300 tokens)           │
+│ NOT cacheable — changes daily                                   │
+│                                                                 │
+│ === Recent Performance (last 7 days, YouTube) ===               │
+│ Total views: 48,320 (+12.4% vs prev 7 days)                    │
+│ Subscribers: 24,180 (+380 this week)                           │
+│ Avg engagement rate: 4.2%                                      │
+│ Videos published: 3                                             │
+│ Top video: "How I batch 30 reels" — 21,400 views, 6.1% ER      │
+│ Worst video: "Vlog Day 4" — 4,200 views, 2.3% ER               │
+│ Best posting day (last 30d): Tuesday                            │
+│ Data as of: 2026-03-28 06:00 UTC                                │
+├─────────────────────────────────────────────────────────────────┤
+│ SECTION 4 — CONVERSATION HISTORY (last 20 messages)            │
+│ NOT cacheable                                                   │
+│                                                                 │
+│ [standard messages array passed to API]                         │
+└─────────────────────────────────────────────────────────────────┘
+	
+
+7.2 Analytics context compression rules
+Analytics are injected as compressed prose — never as raw JSON
+Raw JSON wastes tokens and makes the LLM extract numbers itself (hallucination risk).
+The context-builder.ts compresses a full analytics snapshot into ~300 tokens of structured prose.
+Only include metrics that are relevant to social media strategy decisions.
+	
+
+What to include in analytics context:
+* 7-day and 30-day view totals with percentage change vs previous period
+* Current subscriber/follower count + weekly net change
+* Average engagement rate (computed deterministically)
+* Top 3 performing videos: title, views, ER
+* Bottom 1 performing video (useful for the agent to reference what not to repeat)
+* Best performing day of week (last 30 days)
+* Data freshness timestamp
+
+
+What to EXCLUDE:
+* Raw view counts per video for all videos (only top/bottom)
+* Impressions, reach, CPM (too granular for conversational context)
+* Historical data beyond 30 days (history can be queried on demand)
+
+
+7.3 Token budget enforcement
+Tier
+	Monthly limit
+	Starter (free)
+	50 messages (~75K tokens)
+	Creator Pro $12
+	500 messages (~750K tokens)
+	Creator Max $29
+	Unlimited (soft cap at 5K messages for abuse prevention)
+	
+
+Budget check flow in token-budget.ts:
+* On every POST /api/chat/stream — before building context — check Redis counter: token_budget:{userId}:{yearMonth}
+* If messages_used >= plan_limit → return 429 with remaining=0 and upgrade prompt
+* After successful completion → INCR Redis counter + persist token count to token_usage table
+* Redis key TTL is set to end of calendar month — auto-resets
+
+
+7.4 Proactive vs passive mode
+Controlled by creator_profiles.agent_mode field. The context-builder injects different instructions:
+// Proactive mode injection (appended to Section 1):
+"When the user opens a chat session, greet them with one specific,",
+"data-driven insight from their recent analytics. Be brief (2-3 sentences).",
+"Then ask one follow-up question to understand their current priority."
+
+
+// Passive mode injection:
+"Wait for the user to ask a question. Do not open with unsolicited insights.",
+"Respond directly and concisely when asked."
+	
+
+8. Database Schema
+
+
+8.1 Schema overview
+All tables use UUID primary keys generated with gen_random_uuid(). All timestamps are timestamptz. Soft-delete pattern (deleted_at) on workspace_items.
+
+
+8.2 users
+CREATE TABLE users (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email           TEXT NOT NULL UNIQUE,
+  email_verified  TIMESTAMPTZ,
+  hashed_password TEXT,                    -- null for OAuth-only accounts
+  plan            TEXT NOT NULL DEFAULT 'starter', -- starter | pro | max
+  stripe_customer_id TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+
+-- Auth.js tables (auto-managed):
+-- accounts, sessions, verification_tokens
+	
+
+8.3 creator_profiles
+CREATE TABLE creator_profiles (
+  user_id           UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  display_name      TEXT,
+  niche             TEXT,                  -- e.g. "fitness"
+  sub_niche         TEXT,                  -- e.g. "home workouts"
+  content_style     TEXT[],                -- ["talking_head", "voiceover"]
+  audience_desc     TEXT,                  -- free text, injected into AI context
+  posting_goal_freq INT DEFAULT 3,         -- videos per week
+  agent_mode        TEXT NOT NULL DEFAULT 'proactive', -- proactive | passive
+  timezone          TEXT DEFAULT 'UTC',
+  onboarding_done   BOOLEAN NOT NULL DEFAULT false,
+  -- Phase 2 stubs:
+  niche_embedding   vector(1536),          -- pgvector; populated in Phase 2
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+	
+
+8.4 platform_connections
+CREATE TABLE platform_connections (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id           UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  platform          TEXT NOT NULL,         -- "youtube" | "instagram" | "tiktok"
+  platform_user_id  TEXT NOT NULL,         -- channel ID from platform
+  display_name      TEXT,                  -- channel name
+  access_token_enc  TEXT NOT NULL,         -- AES-256-GCM encrypted via KMS
+  refresh_token_enc TEXT,                  -- encrypted
+  token_expires_at  TIMESTAMPTZ,
+  scopes            TEXT[],
+  last_synced_at    TIMESTAMPTZ,
+  sync_status       TEXT DEFAULT 'idle',  -- idle | syncing | error
+  sync_error        TEXT,                  -- last error message if any
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(user_id, platform)                  -- one connection per platform per user
+);
+	
+
+8.5 analytics_snapshots
+CREATE TABLE analytics_snapshots (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id          UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  connection_id    UUID NOT NULL REFERENCES platform_connections(id),
+  platform         TEXT NOT NULL,
+  snapshot_date    DATE NOT NULL,
+  -- Channel-level metrics
+  subscribers      BIGINT,
+  total_views      BIGINT,
+  total_videos     INT,
+  -- Period metrics (computed from raw, stored for query speed)
+  views_7d         BIGINT,
+  views_30d        BIGINT,
+  subs_gained_7d   INT,
+  avg_er_7d        NUMERIC(6,4),           -- engagement rate as decimal
+  -- Raw payload preserved for schema changes
+  raw_payload      JSONB NOT NULL,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(user_id, platform, snapshot_date)
+);
+
+
+CREATE INDEX idx_snapshots_user_date
+  ON analytics_snapshots(user_id, snapshot_date DESC);
+	
+
+8.6 video_metrics
+CREATE TABLE video_metrics (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id            UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  connection_id      UUID NOT NULL REFERENCES platform_connections(id),
+  platform           TEXT NOT NULL,
+  platform_video_id  TEXT NOT NULL,
+  title              TEXT,
+  thumbnail_url      TEXT,
+  published_at       TIMESTAMPTZ,
+  duration_secs      INT,
+  views              BIGINT NOT NULL DEFAULT 0,
+  likes              INT DEFAULT 0,
+  comments           INT DEFAULT 0,
+  shares             INT DEFAULT 0,
+  watch_time_mins    BIGINT DEFAULT 0,
+  estimated_revenue  NUMERIC(10,4),        -- null if not monetised
+  engagement_rate    NUMERIC(6,4),          -- computed on ingest, stored
+  -- Phase 2 stubs:
+  workspace_item_id  UUID,                 -- FK added in Phase 2 migration
+  perf_score         NUMERIC(5,2),          -- computed 7 days post-publish
+  synced_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(user_id, platform, platform_video_id)
+);
+
+
+CREATE INDEX idx_video_metrics_user_views
+  ON video_metrics(user_id, views DESC);
+	
+
+8.7 chat_sessions + chat_messages
+CREATE TABLE chat_sessions (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title       TEXT,                        -- auto-generated from first message
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+
+CREATE TABLE chat_messages (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  session_id  UUID NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role        TEXT NOT NULL,               -- "user" | "assistant"
+  content     TEXT NOT NULL,
+  token_count INT,                         -- populated after completion
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+
+CREATE INDEX idx_chat_messages_session
+  ON chat_messages(session_id, created_at ASC);
+
+
+CREATE TABLE token_usage (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  year_month  CHAR(7) NOT NULL,            -- "2026-03"
+  messages_used INT NOT NULL DEFAULT 0,
+  tokens_used   BIGINT NOT NULL DEFAULT 0,
+  UNIQUE(user_id, year_month)
+);
+	
+
+8.8 workspace_items
+CREATE TABLE workspace_items (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  stage       TEXT NOT NULL DEFAULT 'idea', -- idea | draft | script | published
+  title       TEXT NOT NULL,
+  body        TEXT,                        -- markdown content
+  source      TEXT NOT NULL DEFAULT 'manual', -- manual | ai_generated
+  -- Phase 2 stubs:
+  sort_order  INT DEFAULT 0,               -- used by kanban
+  video_id    UUID,                        -- FK to video_metrics in Phase 2
+  perf_score  NUMERIC(5,2),
+  -- Soft delete:
+  deleted_at  TIMESTAMPTZ,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+
+CREATE INDEX idx_workspace_items_user_stage
+  ON workspace_items(user_id, stage) WHERE deleted_at IS NULL;
+	
+
+9. Step-by-step Implementation Plan
+
+
+Estimated total: 10–14 working days for a solo developer
+Each phase is independently deployable and testable. Ship to Vercel after each phase.
+	
+
+Phase A — Project foundation (Days 1–2)
+1. Monorepo setup: pnpm workspaces + Turborepo. Create apps/web, apps/worker, packages/db, packages/types.
+2. Next.js scaffold: npx create-next-app@latest with TypeScript, Tailwind, App Router. Install shadcn/ui.
+3. Database: Create Neon project. Install Drizzle. Write all schemas from Section 8. Run first migration.
+4. Redis: Create Upstash Redis instance. Add UPSTASH_REDIS_REST_URL + TOKEN to env.
+5. Environment: Set up .env.local with all secrets. Create env validation file using Zod (never let app boot with missing vars).
+
+
+Phase B — Auth & onboarding (Days 3–4)
+6. Auth.js config: Configure credentials provider (email/password) + Google OAuth. Wire to Drizzle adapter.
+7. Registration API: POST /api/auth/register — bcrypt hash password, create user + empty creator_profile row.
+8. Middleware: apps/web/middleware.ts — protect all (app)/* routes. Redirect unauthenticated to /login.
+9. Onboarding wizard: 3-step form. On complete, PATCH creator_profiles and set onboarding_done=true. Redirect gating in middleware.
+10. Onboarding redirect: If onboarding_done=false, middleware redirects all (app)/* to /onboarding.
+
+
+Phase C — YouTube integration (Days 5–6)
+11. OAuth flow: POST /api/profile/connections — generate Google OAuth URL with youtube.readonly + yt-analytics.readonly scopes.
+12. OAuth callback: Handle /api/auth/callback/google — receive tokens, encrypt with KMS, upsert platform_connections row.
+13. YouTube API client: lib/analytics/youtube.ts — thin wrapper over googleapis SDK. Methods: getChannelStats(), getVideoList(), getAnalyticsReport().
+14. Normalise layer: lib/analytics/normalise.ts — map raw YouTube API response shapes to our DB schema. Zod validation on every response.
+15. Compute layer: lib/analytics/compute.ts — pure functions: computeEngagementRate(), computeGrowthRate(), buildAnalyticsSummary(). 100% deterministic.
+16. Sync job: apps/worker/workers/youtube-sync.ts — fetch → normalise → compute → upsert snapshot + video rows.
+17. Manual sync endpoint: POST /api/analytics/sync — enqueue job, return job ID. GET /api/analytics/sync/status — poll job status.
+
+
+Phase D — Dashboard (Days 7–8)
+18. Snapshot API: GET /api/analytics/snapshot — load latest snapshot, build summary DTO, cache in Redis for 1h.
+19. Videos API: GET /api/analytics/videos — paginated list with sort options.
+20. KPI cards: components/dashboard/KpiCard.tsx — displays metric + percentage change vs previous period. Skeleton on load.
+21. Views trend chart: Recharts LineChart — 30 days of daily snapshot data. Fetched from a dedicated time series query.
+22. Top videos table: Sortable table: thumbnail, title, views, ER, published date. Click → YouTube link.
+23. Sync status: Topbar shows "Last synced 2h ago" with a Sync Now button. Polling with TanStack Query refetchInterval.
+
+
+Phase E — AI chat (Days 9–10)
+24. Context builder: lib/ai/context-builder.ts — load profile + latest snapshot + last 20 messages → assemble system prompt.
+25. Token budget: lib/ai/token-budget.ts — Redis INCR check before every request. Return 429 with upgrade prompt when exhausted.
+26. Stream endpoint: POST /api/chat/stream — build context → call streamText() → pipe SSE response → persist message on complete.
+27. Chat UI: components/chat/ChatWindow.tsx — useChat() hook from Vercel AI SDK handles SSE + state. Markdown rendering.
+28. Session management: Auto-create session on first message. Session list sidebar. Load history on session switch.
+29. Save to workspace: Button on every assistant message → SaveToWorkspaceDialog → POST /api/workspace/items with source='ai_generated'.
+
+
+Phase F — Workspace (Day 11)
+30. CRUD API: All four routes in /api/workspace/items. Soft delete (set deleted_at). Filter by stage.
+31. Item list: Grouped by stage with TanStack Query. Optimistic create/delete/update.
+32. Item editor dialog: shadcn/ui Dialog — title input + Textarea for body + stage select. Markdown preview tab.
+
+
+Phase G — Profile & billing (Days 12–13)
+33. Profile form: All creator_profile fields. Auto-saves with 500ms debounce. Shows last saved timestamp.
+34. Connected accounts: YouTube connection tile with status + last sync + disconnect button.
+35. Stripe integration: Stripe webhook endpoint — handle checkout.session.completed, customer.subscription.updated, customer.subscription.deleted. Update users.plan.
+36. Upgrade prompts: When token budget hit → toast with upgrade CTA. Profile page shows plan + usage bar.
+
+
+Phase H — Polish & deploy (Day 14)
+37. Error boundaries: React error boundaries on Dashboard, Chat, Workspace. Sentry integration.
+38. Loading states: Skeleton components everywhere. Suspense boundaries on heavy server components.
+39. PostHog: Track: onboarding_completed, youtube_connected, first_chat_message, workspace_item_created.
+40. Deploy: Vercel for web app. Railway for worker. Verify all env vars. Smoke test all critical paths.
+
+
+10. Code Examples
+
+
+10.1 Database schema — Drizzle (packages/db/src/schema/analytics.ts)
+import { pgTable, uuid, text, bigint, integer, numeric,
+         date, jsonb, timestamptz, unique, index } from 'drizzle-orm/pg-core';
+import { users } from './users';
+import { platformConnections } from './connections';
+
+
+export const analyticsSnapshots = pgTable('analytics_snapshots', {
+  id:            uuid('id').primaryKey().defaultRandom(),
+  userId:        uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  connectionId:  uuid('connection_id').notNull().references(() => platformConnections.id),
+  platform:      text('platform').notNull(),
+  snapshotDate:  date('snapshot_date').notNull(),
+  subscribers:   bigint('subscribers', { mode: 'number' }),
+  totalViews:    bigint('total_views', { mode: 'number' }),
+  totalVideos:   integer('total_videos'),
+  views7d:       bigint('views_7d', { mode: 'number' }),
+  views30d:      bigint('views_30d', { mode: 'number' }),
+  subsGained7d:  integer('subs_gained_7d'),
+  avgEr7d:       numeric('avg_er_7d', { precision: 6, scale: 4 }),
+  rawPayload:    jsonb('raw_payload').notNull(),
+  createdAt:     timestamptz('created_at').notNull().defaultNow(),
+}, (t) => ({
+  unq: unique().on(t.userId, t.platform, t.snapshotDate),
+  userDateIdx: index('idx_snapshots_user_date').on(t.userId, t.snapshotDate),
+}));
+
+
+export type AnalyticsSnapshot = typeof analyticsSnapshots.$inferSelect;
+export type NewAnalyticsSnapshot = typeof analyticsSnapshots.$inferInsert;
+	
+
+10.2 Analytics compute layer (lib/analytics/compute.ts)
+import type { AnalyticsSnapshot } from '@creator-os/db';
+import type { VideoMetric } from '@creator-os/db';
+
+
+// All functions are pure — no side effects, no AI, fully testable
+
+
+export function computeEngagementRate(
+  views: number,
+  likes: number,
+  comments: number,
+  shares: number,
+): number | null {
+  if (views === 0) return null;
+  return ((likes + comments + shares) / views) * 100;
+}
+
+
+export function computeGrowthRate(
+  current: number,
+  previous: number,
+): number | null {
+  if (previous === 0) return null;
+  return ((current - previous) / previous) * 100;
+}
+
+
+export interface AnalyticsSummary {
+  subscribers: number;
+  totalViews: number;
+  views7d: number;
+  views7dChange: number | null;  // % vs prev 7d
+  subsGained7d: number;
+  avgEngagementRate7d: number | null;
+  dataAsOf: Date;
+  platform: string;
+}
+
+
+export function buildAnalyticsSummary(
+  current: AnalyticsSnapshot,
+  previous: AnalyticsSnapshot | null,
+): AnalyticsSummary {
+  return {
+    subscribers:        current.subscribers ?? 0,
+    totalViews:         current.totalViews ?? 0,
+    views7d:            current.views7d ?? 0,
+    views7dChange:      previous?.views7d
+      ? computeGrowthRate(current.views7d ?? 0, previous.views7d)
+      : null,
+    subsGained7d:       current.subsGained7d ?? 0,
+    avgEngagementRate7d: current.avgEr7d ? Number(current.avgEr7d) : null,
+    dataAsOf:           current.createdAt,
+    platform:           current.platform,
+  };
+}
+
+
+// Format summary as compressed prose for AI context injection
+export function formatAnalyticsForAI(summary: AnalyticsSummary): string {
+  const changeStr = summary.views7dChange !== null
+    ? `(${summary.views7dChange > 0 ? '+' : ''}${summary.views7dChange.toFixed(1)}% vs prev 7d)`
+    : '(no comparison data)';
+
+
+  return [
+    `=== Performance Summary (${summary.platform}, last 7 days) ===`,
+    `Total views: ${summary.views7d.toLocaleString()} ${changeStr}`,
+    `Subscribers: ${summary.subscribers.toLocaleString()} (+${summary.subsGained7d} this week)`,
+    summary.avgEngagementRate7d !== null
+      ? `Avg engagement rate: ${summary.avgEngagementRate7d.toFixed(1)}%`
+      : 'Avg engagement rate: insufficient data',
+    `Data as of: ${summary.dataAsOf.toISOString().split('T')[0]}`,
+  ].join('\n');
+}
+	
+
+10.3 AI context builder (lib/ai/context-builder.ts)
+import { db } from '@creator-os/db';
+import { getLatestSnapshot, getPreviousSnapshot } from '@creator-os/db/queries/analytics';
+import { getRecentMessages } from '@creator-os/db/queries/chat';
+import { buildAnalyticsSummary, formatAnalyticsForAI } from '@/lib/analytics/compute';
+import type { CreatorProfile } from '@creator-os/db';
+import type { CoreMessage } from 'ai';
+
+
+const IDENTITY_PROMPT = `You are a professional social media growth advisor for content creators.
+You are direct, data-literate, and focused exclusively on helping creators grow their online presence.
+You only discuss topics related to social media strategy, content creation, analytics, and
+audience growth. If asked about anything unrelated, politely redirect to your area of expertise.
+Never fabricate statistics — if you don't have data, say so explicitly.`;
+
+
+function buildProfileSection(profile: CreatorProfile): string {
+  const lines = [
+    '=== Creator Profile ===',
+    profile.displayName ? `Creator: ${profile.displayName}` : '',
+    profile.niche ? `Niche: ${profile.niche}${profile.subNiche ? ` / ${profile.subNiche}` : ''}` : '',
+    profile.contentStyle?.length ? `Content style: ${profile.contentStyle.join(', ')}` : '',
+    profile.audienceDesc ? `Audience: ${profile.audienceDesc}` : '',
+    profile.postingGoalFreq ? `Posting goal: ${profile.postingGoalFreq}x per week` : '',
+  ].filter(Boolean);
+  return lines.join('\n');
+}
+
+
+function buildModeInstruction(mode: string): string {
+  return mode === 'proactive'
+    ? 'Open each new conversation with one specific, data-driven insight from recent analytics. Be brief (2-3 sentences). Then ask one follow-up question.'
+    : 'Wait for the user to ask a question. Respond directly without unsolicited insights.';
+}
+
+
+export interface ChatContext {
+  systemPrompt: string;
+  messages: CoreMessage[];
+}
+
+
+export async function buildChatContext(
+  userId: string,
+  sessionId: string,
+  profile: CreatorProfile,
+): Promise<ChatContext> {
+  // Load analytics (parallel)
+  const [currentSnap, prevSnap, recentMessages] = await Promise.all([
+    getLatestSnapshot(userId),
+    getPreviousSnapshot(userId, 7),
+    getRecentMessages(sessionId, 20),
+  ]);
+
+
+  // Build analytics context (deterministic)
+  let analyticsSection = '=== No analytics data yet. User has not synced. ==='
+  if (currentSnap) {
+    const summary = buildAnalyticsSummary(currentSnap, prevSnap);
+    analyticsSection = formatAnalyticsForAI(summary);
+  }
+
+
+  // Assemble system prompt
+  const systemPrompt = [
+    IDENTITY_PROMPT,
+    buildModeInstruction(profile.agentMode ?? 'proactive'),
+    '',
+    buildProfileSection(profile),
+    '',
+    analyticsSection,
+  ].join('\n');
+
+
+  // Map DB messages to Vercel AI SDK format
+  const messages: CoreMessage[] = recentMessages.map(m => ({
+    role: m.role as 'user' | 'assistant',
+    content: m.content,
+  }));
+
+
+  return { systemPrompt, messages };
+}
+	
+
+10.4 Streaming chat API route (app/api/chat/stream/route.ts)
+import { NextRequest } from 'next/server';
+import { streamText } from 'ai';
+import { anthropic } from '@ai-sdk/anthropic';
+import { requireAuth } from '@/lib/auth';
+import { buildChatContext } from '@/lib/ai/context-builder';
+import { checkAndIncrementBudget } from '@/lib/ai/token-budget';
+import { getCreatorProfile } from '@creator-os/db/queries/profiles';
+import { getOrCreateSession, persistMessage } from '@creator-os/db/queries/chat';
+import { z } from 'zod';
+
+
+const RequestSchema = z.object({
+  message: z.string().min(1).max(4000),
+  sessionId: z.string().uuid().optional(),
+});
+
+
+export async function POST(req: NextRequest) {
+  // 1. Auth
+  const session = await requireAuth(req);
+  if (!session) {
+    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+
+  // 2. Parse & validate body
+  const body = await req.json().catch(() => null);
+  const parsed = RequestSchema.safeParse(body);
+  if (!parsed.success) {
+    return Response.json({ error: 'Invalid request' }, { status: 400 });
+  }
+  const { message, sessionId: existingSessionId } = parsed.data;
+
+
+  // 3. Token budget check (Redis)
+  const budget = await checkAndIncrementBudget(session.userId, session.plan);
+  if (!budget.allowed) {
+    return Response.json({
+      error: 'Monthly message limit reached',
+      messagesUsed: budget.used,
+      limit: budget.limit,
+      upgradeUrl: '/profile#billing',
+    }, { status: 429 });
+  }
+
+
+  // 4. Load profile + get/create session (parallel)
+  const [profile, chatSession] = await Promise.all([
+    getCreatorProfile(session.userId),
+    getOrCreateSession(session.userId, existingSessionId),
+  ]);
+
+
+  // 5. Build AI context (profile + analytics + history)
+  const { systemPrompt, messages: history } = await buildChatContext(
+    session.userId,
+    chatSession.id,
+    profile,
+  );
+
+
+  // 6. Persist user message before streaming
+  await persistMessage({
+    sessionId: chatSession.id,
+    userId: session.userId,
+    role: 'user',
+    content: message,
+  });
+
+
+  // 7. Stream response from Claude
+  const result = streamText({
+    model: anthropic('claude-sonnet-4-6'),
+    system: systemPrompt,
+    messages: [...history, { role: 'user', content: message }],
+    maxTokens: 1000,
+    onFinish: async ({ text, usage }) => {
+      // 8. Persist assistant message + token count
+      await persistMessage({
+        sessionId: chatSession.id,
+        userId: session.userId,
+        role: 'assistant',
+        content: text,
+        tokenCount: usage.completionTokens,
+      });
+    },
+  });
+
+
+  // 9. Return SSE stream with session ID header
+  return result.toDataStreamResponse({
+    headers: { 'X-Session-Id': chatSession.id },
+  });
+}
+	
+
+10.5 Token budget enforcement (lib/ai/token-budget.ts)
+import { redis } from '@/lib/redis';
+
+
+const PLAN_LIMITS: Record<string, number> = {
+  starter: 50,
+  pro:     500,
+  max:     5000,  // soft cap for abuse prevention
+};
+
+
+function getBudgetKey(userId: string): string {
+  const now = new Date();
+  const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  return `token_budget:${userId}:${yearMonth}`;
+}
+
+
+export interface BudgetResult {
+  allowed: boolean;
+  used: number;
+  limit: number;
+}
+
+
+export async function checkAndIncrementBudget(
+  userId: string,
+  plan: string,
+): Promise<BudgetResult> {
+  const limit = PLAN_LIMITS[plan] ?? PLAN_LIMITS.starter;
+  const key = getBudgetKey(userId);
+
+
+  // Atomic: get current count
+  const current = await redis.get<number>(key) ?? 0;
+
+
+  if (current >= limit) {
+    return { allowed: false, used: current, limit };
+  }
+
+
+  // Increment and set TTL to end of month
+  const newCount = await redis.incr(key);
+  if (newCount === 1) {
+    // First use this month — set TTL to end of month
+    const endOfMonth = new Date();
+    endOfMonth.setMonth(endOfMonth.getMonth() + 1, 1);
+    endOfMonth.setHours(0, 0, 0, 0);
+    const ttlSeconds = Math.floor((endOfMonth.getTime() - Date.now()) / 1000);
+    await redis.expire(key, ttlSeconds);
+  }
+
+
+  return { allowed: true, used: newCount, limit };
+}
+	
+
+10.6 Project setup — monorepo init
+# 1. Initialise pnpm monorepo
+mkdir creator-os && cd creator-os
+pnpm init
+echo 'packages:\n  - "apps/*"\n  - "packages/*"' > pnpm-workspace.yaml
+
+
+# 2. Install Turborepo
+pnpm add -D turbo -w
+
+
+# 3. Create Next.js app
+cd apps
+pnpm create next-app@latest web --typescript --tailwind --app --no-src-dir
+cd web && pnpm dlx shadcn@latest init
+
+
+# 4. Create worker app
+mkdir -p ../worker/src && cd ../worker
+pnpm init && pnpm add bullmq ioredis
+pnpm add -D typescript tsx @types/node
+
+
+# 5. Create shared db package
+mkdir -p ../../packages/db/src/schema
+mkdir -p ../../packages/db/src/queries
+cd ../../packages/db && pnpm init
+pnpm add drizzle-orm @neondatabase/serverless
+pnpm add -D drizzle-kit
+
+
+# 6. Create shared types package
+mkdir -p ../../packages/types/src
+cd ../../packages/types && pnpm init
+pnpm add -D typescript zod
+
+
+# 7. Install AI dependencies in web app
+cd ../../apps/web
+pnpm add ai @ai-sdk/anthropic @upstash/redis
+pnpm add next-auth@beta @auth/drizzle-adapter
+pnpm add recharts react-markdown remark-gfm
+pnpm add zustand @tanstack/react-query
+pnpm add stripe @stripe/stripe-js
+pnpm add -D drizzle-kit
+
+
+# 8. Add turbo pipeline (turbo.json)
+# build, dev, lint, type-check tasks defined in root turbo.json
+
+
+# 9. Run dev
+cd ../.. && pnpm dev
+	
+
+10.7 YouTube sync worker (apps/worker/src/workers/youtube-sync.ts)
+import { Job } from 'bullmq';
+import { fetchYouTubeChannelStats, fetchYouTubeVideos } from '../lib/youtube';
+import { decryptToken } from '../lib/kms';
+import { normaliseYouTubeStats } from '../lib/normalise';
+import { computeEngagementRate } from '../lib/compute';
+import { db, platformConnections, analyticsSnapshots, videoMetrics } from '@creator-os/db';
+import { eq } from 'drizzle-orm';
+
+
+export interface YouTubeSyncJobData {
+  userId: string;
+  connectionId: string;
+}
+
+
+export async function processYouTubeSync(job: Job<YouTubeSyncJobData>) {
+  const { userId, connectionId } = job.data;
+
+
+  // 1. Load connection + decrypt token
+  const connection = await db.query.platformConnections.findFirst({
+    where: eq(platformConnections.id, connectionId),
+  });
+  if (!connection) throw new Error(`Connection ${connectionId} not found`);
+
+
+  const accessToken = await decryptToken(connection.accessTokenEnc);
+
+
+  // 2. Set sync_status = syncing
+  await db.update(platformConnections)
+    .set({ syncStatus: 'syncing' })
+    .where(eq(platformConnections.id, connectionId));
+
+
+  try {
+    // 3. Fetch raw data from YouTube APIs
+    const [channelStats, videos] = await Promise.all([
+      fetchYouTubeChannelStats(accessToken),
+      fetchYouTubeVideos(accessToken),
+    ]);
+
+
+    // 4. Normalise (raw → DB schema shape)
+    const snapshot = normaliseYouTubeStats(channelStats, userId, connectionId);
+
+
+    // 5. Upsert snapshot (all computations are pure functions)
+    await db.insert(analyticsSnapshots)
+      .values(snapshot)
+      .onConflictDoUpdate({
+        target: [analyticsSnapshots.userId, analyticsSnapshots.platform, analyticsSnapshots.snapshotDate],
+        set: { ...snapshot, createdAt: new Date() },
+      });
+
+
+    // 6. Upsert video metrics
+    for (const video of videos) {
+      const er = computeEngagementRate(video.views, video.likes, video.comments, video.shares);
+      await db.insert(videoMetrics)
+        .values({ ...video, userId, connectionId, engagementRate: er?.toString() ?? null })
+        .onConflictDoUpdate({
+          target: [videoMetrics.userId, videoMetrics.platform, videoMetrics.platformVideoId],
+          set: { views: video.views, likes: video.likes, syncedAt: new Date() },
+        });
+    }
+
+
+    // 7. Mark sync complete
+    await db.update(platformConnections)
+      .set({ syncStatus: 'idle', lastSyncedAt: new Date(), syncError: null })
+      .where(eq(platformConnections.id, connectionId));
+
+
+  } catch (err) {
+    // 8. Persist error, reset status
+    await db.update(platformConnections)
+      .set({ syncStatus: 'error', syncError: String(err) })
+      .where(eq(platformConnections.id, connectionId));
+    throw err;  // BullMQ handles retry
+  }
+}
+	
+
+Appendix: Environment Variables
+
+
+# apps/web/.env.local
+
+
+# Auth
+NEXTAUTH_SECRET=                    # openssl rand -base64 32
+NEXTAUTH_URL=http://localhost:3000
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+
+
+# Database
+DATABASE_URL=                       # Neon connection string (pooled)
+DATABASE_URL_UNPOOLED=              # Neon direct URL for migrations
+
+
+# Redis
+UPSTASH_REDIS_REST_URL=
+UPSTASH_REDIS_REST_TOKEN=
+
+
+# AI
+ANTHROPIC_API_KEY=
+
+
+# YouTube
+GOOGLE_YOUTUBE_CLIENT_ID=           # Separate OAuth app for YouTube scopes
+GOOGLE_YOUTUBE_CLIENT_SECRET=
+
+
+# Encryption
+AWS_KMS_KEY_ID=                     # ARN of KMS key for token encryption
+AWS_REGION=
+AWS_ACCESS_KEY_ID=
+AWS_SECRET_ACCESS_KEY=
+
+
+# Payments
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=
+
+
+# Monitoring
+SENTRY_DSN=
+NEXT_PUBLIC_POSTHOG_KEY=
+NEXT_PUBLIC_POSTHOG_HOST=https://app.posthog.com
+	
+
+Appendix: Phase 2 & 3 Readiness
+The following stubs ensure Phase 2/3 features slot in without schema migrations or major refactoring:
+
+
+Feature (Phase 2+)
+	Stub in MVP
+	Instagram integration
+	platform_connections.platform enum supports "instagram"
+	Kanban pipeline
+	workspace_items.sort_order column exists; items display as flat list
+	Script-to-video linking
+	video_metrics.workspace_item_id column exists as nullable UUID
+	RAG / niche embeddings
+	creator_profiles.niche_embedding vector(1536) column exists; null until Phase 2
+	Time tracker
+	stores/timer.ts stub file exists in repo
+	Performance score
+	video_metrics.perf_score and workspace_items.perf_score columns exist
+	AI insight layer
+	/api/analytics/insights route returns 501 Not Implemented
+	TikTok integration
+	platform enum supports "tiktok"; sync job checks platform and skips if no handler
+	Multi-model routing
+	Model is a config constant — swap from Sonnet to Haiku by changing one line

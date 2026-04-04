@@ -1,0 +1,24 @@
+{
+  "name": "@creator-os/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@creator-os/db": "workspace:*",
+    "@upstash/redis": "^1.30.2",
+    "bullmq": "^4.17.0",
+    "drizzle-orm": "^0.44.4",
+    "ioredis": "^5.4.1",
+    "node-cron": "^3.0.3",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.7",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.0"
+  }
+}

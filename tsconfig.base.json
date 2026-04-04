@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2021",
+    "module": "ESNext",
+    "lib": ["ES2021", "DOM"],
+    "moduleResolution": "Node",
+    "allowJs": false,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "baseUrl": ".",
+    "paths": {
+      "@creator-os/db": ["packages/db/src/index.ts"],
+      "@creator-os/db/*": ["packages/db/src/*"],
+      "@creator-os/types": ["packages/types/src/index.ts"],
+      "@creator-os/types/*": ["packages/types/src/*"],
+      "@creator-os/config/*": ["packages/config/*"],
+      "@/*": ["apps/web/src/*"]
+    }
+  },
+  "include": ["apps", "packages", "turbo.json"]
+}
