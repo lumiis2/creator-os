@@ -2,6 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useChatUiStore } from "@/stores/chat";
 
+class StreamError extends Error {
+  constructor(message: string, public status: number | null, public retriable: boolean) {
+    super(message);
+  }
+}
+
 export interface ChatSession {
   id: string;
   title: string | null;
@@ -68,8 +74,52 @@ export function useChat() {
     },
   });
 
+  const ensureSessionId = useCallback(async (): Promise<string> => {
+    if (activeSessionId) {
+      return activeSessionId;
+    }
+
+    const created = await createSession();
+    const sessionId = created.data.id;
+    setActiveSessionId(sessionId);
+    await sessionsQuery.refetch();
+    return sessionId;
+  }, [activeSessionId, setActiveSessionId, sessionsQuery]);
+
+  const streamRequest = useCallback(async (sessionId: string, message: string, signal: AbortSignal) => {
+    const res = await fetch("/api/chat/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message, sessionId }),
+      signal,
+    });
+
+    if (!res.ok || !res.body) {
+      let errMessage = "Failed to stream response.";
+      try {
+        const payload = await res.json();
+        errMessage = payload?.error ?? errMessage;
+      } catch {
+        // noop
+      }
+
+      const retriable = res.status >= 500 || res.status === 429;
+      throw new StreamError(errMessage, res.status, retriable);
+    }
+
+    return res;
+  }, []);
+
   const sendMessage = useCallback(async () => {
-    if (!activeSessionId || !draft.trim() || streaming) return;
+    if (!draft.trim() || streaming) return;
+
+    let sessionId: string;
+    try {
+      sessionId = await ensureSessionId();
+    } catch {
+      setStreamError("Failed to create chat session.");
+      return;
+    }
 
     setStreaming(true);
     setStreamingText("");
@@ -87,51 +137,91 @@ export function useChat() {
       createdAt: new Date().toISOString(),
     });
 
-    const res = await fetch("/api/chat/stream", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: userMessage, sessionId: activeSessionId }),
-      signal: abortRef.current.signal,
-    });
+    let attempt = 0;
+    const maxAttempts = 2;
 
-    if (!res.ok || !res.body) {
-      setStreaming(false);
-      setStreamError("Failed to stream response.");
-      return;
-    }
+    while (attempt < maxAttempts) {
+      try {
+        const res = await streamRequest(sessionId, userMessage, abortRef.current.signal);
 
-    const newSessionId = res.headers.get("X-Session-Id");
-    if (newSessionId && newSessionId !== activeSessionId) {
-      setActiveSessionId(newSessionId);
-      sessionsQuery.refetch();
-    }
+        const newSessionId = res.headers.get("X-Session-Id");
+        if (newSessionId && newSessionId !== sessionId) {
+          sessionId = newSessionId;
+          setActiveSessionId(newSessionId);
+          sessionsQuery.refetch();
+        }
 
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder("utf-8");
+        const reader = res.body!.getReader();
+        const decoder = new TextDecoder("utf-8");
 
-    let fullText = "";
-    let buffer = "";
+        let fullText = "";
+        let buffer = "";
 
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
 
-      for (const line of lines) {
-        if (!line.startsWith("data:")) continue;
-        const payload = line.replace(/^data:\s?/, "");
-        if (!payload) continue;
-        fullText += payload;
-        setStreamingText(fullText);
+          const events = buffer.split("\n\n");
+          buffer = events.pop() ?? "";
+
+          for (const rawEvent of events) {
+            const lines = rawEvent.split("\n");
+            let eventName = "message";
+            const dataLines: string[] = [];
+
+            for (const line of lines) {
+              if (line.startsWith(":") || !line.trim()) continue;
+              if (line.startsWith("event:")) {
+                eventName = line.replace(/^event:\s?/, "").trim();
+              } else if (line.startsWith("data:")) {
+                dataLines.push(line.replace(/^data:\s?/, ""));
+              }
+            }
+
+            const payload = dataLines.join("\n");
+            if (!payload) continue;
+
+            if (eventName === "error") {
+              throw new StreamError(payload, null, attempt + 1 < maxAttempts);
+            }
+
+            fullText += payload;
+            setStreamingText(fullText);
+          }
+        }
+
+        setStreaming(false);
+        setStreamingText("");
+        setPendingUserMessage(null);
+        messagesQuery.refetch();
+        return;
+      } catch (error) {
+        if (abortRef.current?.signal.aborted) {
+          setStreaming(false);
+          setPendingUserMessage(null);
+          return;
+        }
+
+        const retriable =
+          error instanceof StreamError
+            ? error.retriable
+            : error instanceof TypeError;
+
+        if (retriable && attempt + 1 < maxAttempts) {
+          attempt += 1;
+          await new Promise((resolve) => setTimeout(resolve, 400));
+          continue;
+        }
+
+        setStreaming(false);
+        setStreamingText("");
+        setPendingUserMessage(null);
+        setStreamError(error instanceof Error ? error.message : "Failed to stream response.");
+        return;
       }
     }
-
-    setStreaming(false);
-    setPendingUserMessage(null);
-    messagesQuery.refetch();
-  }, [activeSessionId, draft, messagesQuery, sessionsQuery, setActiveSessionId, setDraft, streaming]);
+  }, [draft, ensureSessionId, messagesQuery, sessionsQuery, setActiveSessionId, setDraft, streamRequest, streaming]);
 
   const activeSession = useMemo(
     () => sessions.find((s: ChatSession) => s.id === activeSessionId) ?? null,

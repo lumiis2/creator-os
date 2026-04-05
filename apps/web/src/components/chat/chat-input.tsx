@@ -1,3 +1,5 @@
+import type { KeyboardEvent } from "react";
+
 interface ChatInputProps {
   value: string;
   onChange: (value: string) => void;
@@ -6,18 +8,27 @@ interface ChatInputProps {
 }
 
 export function ChatInput({ value, onChange, onSend, disabled }: ChatInputProps) {
+  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      if (!disabled) onSend();
+    }
+  };
+
   return (
-    <div className="flex gap-2">
-      <input
+    <div className="flex items-end gap-2">
+      <textarea
         value={value}
         onChange={(event) => onChange(event.target.value)}
+        onKeyDown={handleKeyDown}
         placeholder="Ask CreatorOS..."
-        className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm"
+        rows={1}
+        className="max-h-36 min-h-[44px] flex-1 resize-y rounded-xl border border-border bg-background px-3 py-3 text-sm outline-none ring-primary/30 placeholder:text-muted focus:ring"
       />
       <button
         onClick={onSend}
         disabled={disabled}
-        className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+        className="h-11 rounded-xl bg-primary px-4 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
       >
         Send
       </button>
