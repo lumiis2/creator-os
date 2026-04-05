@@ -14,7 +14,11 @@ export default function ChatPage() {
     messagesQuery,
     createMutation,
     sendMessage,
-    streaming,
+    regenerateLastResponse,
+    isThinking,
+    isSearching,
+    isStreaming,
+    statusLabel,
     streamingText,
     streamError,
     draft,
@@ -44,11 +48,27 @@ export default function ChatPage() {
         {streamError && <div className="border-b border-red-500/30 bg-red-500/10 px-4 py-2 text-xs text-red-300">{streamError}</div>}
 
         <div className="min-h-0 flex-1 p-4">
-          <ChatWindow messages={messages} streamingText={streamingText} loading={messagesQuery.isLoading} />
+          <ChatWindow
+            messages={messages}
+            streamingText={streamingText}
+            loading={messagesQuery.isLoading}
+            isThinking={isThinking}
+            isSearching={isSearching}
+            isStreaming={isStreaming}
+            statusLabel={statusLabel}
+          />
         </div>
 
-        <div className="border-t border-border px-4 py-3">
-          <ChatInput value={draft} onChange={setDraft} onSend={sendMessage} disabled={!draft.trim() || streaming} />
+        <div className="sticky bottom-0 border-t border-border bg-card/95 px-4 py-3 backdrop-blur">
+          <ChatInput
+            value={draft}
+            onChange={setDraft}
+            onSend={sendMessage}
+            onRegenerate={regenerateLastResponse}
+            canRegenerate={messages.some((m) => m.role === "user")}
+            sendDisabled={!draft.trim() || isThinking || isSearching || isStreaming}
+            busy={isThinking || isSearching || isStreaming}
+          />
         </div>
       </section>
     </div>

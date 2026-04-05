@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { requireAuth } from "@/lib/auth";
 import { checkAndIncrementBudget } from "@/lib/ai/token-budget";
-import { buildAgentContext } from "@/lib/ai/orchestrator/agent";
+import { buildAgentContext, shouldUseWebSearch } from "@/lib/ai/orchestrator/agent";
 import { getAIProvider } from "@/lib/ai/providers";
 import { getOrCreateSession, persistMessage } from "@creator-os/db/queries/chat";
 
@@ -13,6 +13,7 @@ const RequestSchema = z.object({
 
 const STREAM_IDLE_TIMEOUT_MS = 30_000;
 const STREAM_HEARTBEAT_MS = 15_000;
+const MIN_STATUS_DISPLAY_MS = 500;
 
 function timeoutResult<T>(ms: number): Promise<T | { timedOut: true }> {
   return new Promise((resolve) => {
@@ -23,6 +24,14 @@ function timeoutResult<T>(ms: number): Promise<T | { timedOut: true }> {
 function formatSseData(data: string): string {
   const lines = data.split(/\r?\n/);
   return `${lines.map((line) => `data: ${line}`).join("\n")}\n\n`;
+}
+
+function formatSseEvent(event: string, payload: Record<string, string | boolean>): string {
+  return `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export async function POST(req: NextRequest) {
@@ -50,11 +59,7 @@ export async function POST(req: NextRequest) {
   }
 
   const chatSession = await getOrCreateSession(session.userId, existingSessionId);
-  const { systemPrompt, messages: history } = await buildAgentContext({
-    userId: session.userId,
-    sessionId: chatSession.id,
-    userMessage: message,
-  });
+  const searchRequested = shouldUseWebSearch(message);
 
   await persistMessage({
     sessionId: chatSession.id,
@@ -63,22 +68,24 @@ export async function POST(req: NextRequest) {
     content: message,
   });
 
-  const provider = getAIProvider();
-  const stream = provider.streamChat({
-    systemPrompt,
-    messages: [...history, { role: "user", content: message }],
-    maxTokens: 1000,
-  });
-
   const encoder = new TextEncoder();
   let fullText = "";
 
   const readable = new ReadableStream({
     async start(controller) {
-      const iterator = stream[Symbol.asyncIterator]();
       const heartbeat = setInterval(() => {
         controller.enqueue(encoder.encode(": keepalive\n\n"));
       }, STREAM_HEARTBEAT_MS);
+
+      let statusStartedAt = Date.now();
+      const sendStatus = async (state: "thinking" | "searching" | "analyzing" | "generating", label: string) => {
+        const elapsed = Date.now() - statusStartedAt;
+        if (elapsed < MIN_STATUS_DISPLAY_MS) {
+          await wait(MIN_STATUS_DISPLAY_MS - elapsed);
+        }
+        controller.enqueue(encoder.encode(formatSseEvent("status", { state, label })));
+        statusStartedAt = Date.now();
+      };
 
       const closeStream = async (persist = true) => {
         clearInterval(heartbeat);
@@ -95,6 +102,32 @@ export async function POST(req: NextRequest) {
       };
 
       try {
+        controller.enqueue(encoder.encode(formatSseEvent("status", { state: "thinking", label: "Thinking..." })));
+
+        if (searchRequested) {
+          await sendStatus("searching", "Searching the web...");
+        }
+
+        const { systemPrompt, messages: history, webSearchUsed } = await buildAgentContext({
+          userId: session.userId,
+          sessionId: chatSession.id,
+          userMessage: message,
+        });
+
+        if (webSearchUsed) {
+          await sendStatus("analyzing", "Analyzing results...");
+        }
+
+        await sendStatus("generating", "Generating response...");
+
+        const provider = getAIProvider();
+        const stream = provider.streamChat({
+          systemPrompt,
+          messages: [...history, { role: "user", content: message }],
+          maxTokens: 1000,
+        });
+        const iterator = stream[Symbol.asyncIterator]();
+
         while (true) {
           const next = await Promise.race([
             iterator.next(),

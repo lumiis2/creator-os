@@ -22,7 +22,7 @@ export interface AgentBuildOutput {
 
 const SEARCH_TRIGGER = /\b(search|find|latest|trend|recent)\b/i;
 
-function shouldUseWebSearch(message: string): boolean {
+export function shouldUseWebSearch(message: string): boolean {
   return SEARCH_TRIGGER.test(message);
 }
 
