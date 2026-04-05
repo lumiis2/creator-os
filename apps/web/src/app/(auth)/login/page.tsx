@@ -2,11 +2,34 @@
 
 import Link from "next/link";
 import { signIn } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
+
+function mapLoginError(errorCode: string | null): string | null {
+  if (!errorCode) return null;
+
+  switch (errorCode) {
+    case "AccessDenied":
+      return "Access denied during sign-in. Please try again, or use email login.";
+    case "OAuthSignin":
+    case "OAuthCallback":
+    case "OAuthCreateAccount":
+      return "Google sign-in failed. Check your Google OAuth credentials and allowed redirect URI.";
+    case "account_setup_failed":
+      return "We could not finish account setup. Please try again in a few seconds.";
+    case "database_unavailable":
+      return "Database is currently unavailable. Start your local Postgres service and try again.";
+    case "Configuration":
+      return "Authentication is misconfigured. Please verify environment variables.";
+    default:
+      return "Sign-in failed. Please try again.";
+  }
+}
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const loginError = mapLoginError(searchParams.get("error"));
   const [emailMode, setEmailMode] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -45,6 +68,12 @@ export default function LoginPage() {
         <h1 className="text-2xl font-semibold text-white">CreatorOS</h1>
         <p className="mt-1 text-sm text-muted">Manage and grow your creator workflow</p>
         <p className="mt-4 text-xs text-muted">No integrations required to get started</p>
+
+        {loginError && (
+          <div className="mt-4 rounded-md border border-red-500/50 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+            {loginError}
+          </div>
+        )}
 
         <div className="mt-6 space-y-3">
           <button

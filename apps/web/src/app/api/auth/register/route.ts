@@ -15,7 +15,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
 
-  const { email, password } = parsed.data;
+  const email = parsed.data.email.trim().toLowerCase();
+  const { password } = parsed.data;
   const existing = await db.query.users.findFirst({ where: eq(users.email, email) });
   if (existing) {
     return NextResponse.json({ error: "Email already registered" }, { status: 409 });

@@ -29,9 +29,17 @@ export async function GET() {
   }
 
   const cacheKey = `analytics:snapshot:${session.userId}`;
-  const cached = await redis.get<SnapshotResponse>(cacheKey);
-  if (cached) {
-    return NextResponse.json(cached);
+  try {
+    const cached = await redis.get<SnapshotResponse>(cacheKey);
+    if (cached) {
+      return NextResponse.json(cached);
+    }
+  } catch (cacheError) {
+    // eslint-disable-next-line no-console
+    console.warn("[analytics-snapshot] cache read failed", {
+      userId: session.userId,
+      error: cacheError instanceof Error ? cacheError.message : String(cacheError),
+    });
   }
 
   const connection = await db.query.platformConnections.findFirst({
@@ -61,6 +69,14 @@ export async function GET() {
     synced: true,
   };
 
-  await redis.set(cacheKey, responseShape, { ex: CACHE_TTL_SECONDS });
+  try {
+    await redis.set(cacheKey, responseShape, { ex: CACHE_TTL_SECONDS });
+  } catch (cacheError) {
+    // eslint-disable-next-line no-console
+    console.warn("[analytics-snapshot] cache write failed", {
+      userId: session.userId,
+      error: cacheError instanceof Error ? cacheError.message : String(cacheError),
+    });
+  }
   return NextResponse.json(responseShape);
 }

@@ -144,8 +144,16 @@ export async function POST(req: NextRequest) {
         .set({ syncStatus: "idle", syncError: null, lastSyncedAt: new Date() })
         .where(eq(platformConnections.id, connection.id));
 
-      await redis.del(`analytics:snapshot:${session.userId}`);
-      await redis.del(`analytics:videos:${session.userId}:10:0:views:desc`);
+      try {
+        await redis.del(`analytics:snapshot:${session.userId}`);
+        await redis.del(`analytics:videos:${session.userId}:10:0:views:desc`);
+      } catch (cacheError) {
+        // eslint-disable-next-line no-console
+        console.warn("[analytics-sync] cache invalidation failed", {
+          userId: session.userId,
+          error: cacheError instanceof Error ? cacheError.message : String(cacheError),
+        });
+      }
 
       return NextResponse.json({
         enqueued: false,

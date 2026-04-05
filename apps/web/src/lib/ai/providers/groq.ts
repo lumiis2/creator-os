@@ -22,6 +22,7 @@ export class GroqProvider implements AIProvider {
       model: MODEL,
       messages,
       max_tokens: input.maxTokens ?? 1000,
+      temperature: 0.3,
       stream: true,
     });
 
