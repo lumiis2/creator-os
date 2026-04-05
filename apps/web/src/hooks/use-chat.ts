@@ -39,6 +39,25 @@ async function createSession(): Promise<{ data: ChatSession }> {
   return res.json();
 }
 
+async function patchSessionTitle(sessionId: string, title: string | null): Promise<{ data: ChatSession }> {
+  const res = await fetch(`/api/chat/sessions/${sessionId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
+
+  if (!res.ok) throw new Error("Failed to rename session");
+  return res.json();
+}
+
+async function removeSession(sessionId: string): Promise<void> {
+  const res = await fetch(`/api/chat/sessions/${sessionId}`, {
+    method: "DELETE",
+  });
+
+  if (!res.ok) throw new Error("Failed to delete session");
+}
+
 export function useChat() {
   const { activeSessionId, setActiveSessionId, draft, setDraft } = useChatUiStore();
   const [streamingText, setStreamingText] = useState("");
@@ -83,6 +102,22 @@ export function useChat() {
       sessionsQuery.refetch();
     },
   });
+
+  const renameSessionById = useCallback(async (sessionId: string, title: string | null) => {
+    await patchSessionTitle(sessionId, title);
+    await sessionsQuery.refetch();
+  }, [sessionsQuery]);
+
+  const deleteSessionById = useCallback(async (sessionId: string) => {
+    await removeSession(sessionId);
+
+    if (activeSessionId === sessionId) {
+      const next = sessions.filter((s) => s.id !== sessionId);
+      setActiveSessionId(next[0]?.id ?? null);
+    }
+
+    await sessionsQuery.refetch();
+  }, [activeSessionId, sessions, sessionsQuery, setActiveSessionId]);
 
   const ensureSessionId = useCallback(async (): Promise<string> => {
     if (activeSessionId) {
@@ -307,6 +342,8 @@ export function useChat() {
     sessionsQuery,
     messagesQuery,
     createMutation,
+    renameSessionById,
+    deleteSessionById,
     sendMessage,
     regenerateLastResponse,
     isThinking,

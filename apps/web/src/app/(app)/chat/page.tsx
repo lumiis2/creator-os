@@ -13,6 +13,8 @@ export default function ChatPage() {
     sessionsQuery,
     messagesQuery,
     createMutation,
+    renameSessionById,
+    deleteSessionById,
     sendMessage,
     regenerateLastResponse,
     isThinking,
@@ -33,6 +35,16 @@ export default function ChatPage() {
         activeSessionId={activeSession?.id ?? null}
         onSelect={setActiveSessionId}
         onNew={() => createMutation.mutate()}
+        onRename={renameSessionById}
+        onDelete={async (id) => {
+          const confirmed = window.confirm("Delete this conversation? This action cannot be undone.");
+          if (!confirmed) return;
+          try {
+            await deleteSessionById(id);
+          } catch {
+            // noop
+          }
+        }}
       />
 
       <section className="flex min-h-0 flex-col rounded-2xl border border-border bg-card/60">
