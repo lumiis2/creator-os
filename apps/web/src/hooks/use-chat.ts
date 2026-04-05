@@ -42,10 +42,20 @@ async function createSession(): Promise<{ data: ChatSession }> {
 export function useChat() {
   const { activeSessionId, setActiveSessionId, draft, setDraft } = useChatUiStore();
   const [streamingText, setStreamingText] = useState("");
-  const [streaming, setStreaming] = useState(false);
+  const [isThinking, setIsThinking] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
   const [pendingUserMessage, setPendingUserMessage] = useState<ChatMessage | null>(null);
   const [streamError, setStreamError] = useState<string | null>(null);
+  const [statusLabel, setStatusLabel] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  const clearRuntimeStates = useCallback(() => {
+    setIsThinking(false);
+    setIsSearching(false);
+    setIsStreaming(false);
+    setStatusLabel(null);
+  }, []);
 
   const sessionsQuery = useQuery({
     queryKey: ["chat-sessions"],
@@ -110,8 +120,8 @@ export function useChat() {
     return res;
   }, []);
 
-  const sendMessage = useCallback(async () => {
-    if (!draft.trim() || streaming) return;
+  const sendMessageText = useCallback(async (text: string) => {
+    if (!text.trim() || isThinking || isSearching || isStreaming) return;
 
     let sessionId: string;
     try {
@@ -121,15 +131,17 @@ export function useChat() {
       return;
     }
 
-    setStreaming(true);
+    setIsThinking(true);
+    setIsSearching(false);
+    setIsStreaming(false);
+    setStatusLabel("Thinking...");
     setStreamingText("");
     setStreamError(null);
 
     abortRef.current?.abort();
     abortRef.current = new AbortController();
 
-    const userMessage = draft.trim();
-    setDraft("");
+    const userMessage = text.trim();
     setPendingUserMessage({
       id: `pending-${Date.now()}`,
       role: "user",
@@ -139,10 +151,26 @@ export function useChat() {
 
     let attempt = 0;
     const maxAttempts = 2;
+    const minStateMs = 500;
+    let statusAt = Date.now();
+
+    const transitionStatus = async (state: "thinking" | "searching" | "streaming", label: string) => {
+      const elapsed = Date.now() - statusAt;
+      if (elapsed < minStateMs) {
+        await new Promise((resolve) => setTimeout(resolve, minStateMs - elapsed));
+      }
+
+      setIsThinking(state === "thinking");
+      setIsSearching(state === "searching");
+      setIsStreaming(state === "streaming");
+      setStatusLabel(label);
+      statusAt = Date.now();
+    };
 
     while (attempt < maxAttempts) {
       try {
         const res = await streamRequest(sessionId, userMessage, abortRef.current.signal);
+        let streamStatusActive = false;
 
         const newSessionId = res.headers.get("X-Session-Id");
         if (newSessionId && newSessionId !== sessionId) {
@@ -182,8 +210,32 @@ export function useChat() {
             const payload = dataLines.join("\n");
             if (!payload) continue;
 
+            if (eventName === "status") {
+              try {
+                const status = JSON.parse(payload) as { state?: string; label?: string };
+                if (status.state === "thinking") {
+                  await transitionStatus("thinking", status.label ?? "Thinking...");
+                  streamStatusActive = false;
+                } else if (status.state === "searching" || status.state === "analyzing") {
+                  await transitionStatus("searching", status.label ?? "Searching the web...");
+                  streamStatusActive = false;
+                } else if (status.state === "generating") {
+                  await transitionStatus("streaming", status.label ?? "Generating response...");
+                  streamStatusActive = true;
+                }
+              } catch {
+                // noop
+              }
+              continue;
+            }
+
             if (eventName === "error") {
               throw new StreamError(payload, null, attempt + 1 < maxAttempts);
+            }
+
+            if (!streamStatusActive) {
+              await transitionStatus("streaming", "Generating response...");
+              streamStatusActive = true;
             }
 
             fullText += payload;
@@ -191,14 +243,14 @@ export function useChat() {
           }
         }
 
-        setStreaming(false);
+        clearRuntimeStates();
         setStreamingText("");
         setPendingUserMessage(null);
         messagesQuery.refetch();
         return;
       } catch (error) {
         if (abortRef.current?.signal.aborted) {
-          setStreaming(false);
+          clearRuntimeStates();
           setPendingUserMessage(null);
           return;
         }
@@ -214,14 +266,28 @@ export function useChat() {
           continue;
         }
 
-        setStreaming(false);
+        clearRuntimeStates();
         setStreamingText("");
         setPendingUserMessage(null);
         setStreamError(error instanceof Error ? error.message : "Failed to stream response.");
         return;
       }
     }
-  }, [draft, ensureSessionId, messagesQuery, sessionsQuery, setActiveSessionId, setDraft, streamRequest, streaming]);
+  }, [clearRuntimeStates, ensureSessionId, isSearching, isStreaming, isThinking, messagesQuery, sessionsQuery, setActiveSessionId, streamRequest]);
+
+  const sendMessage = useCallback(async () => {
+    if (!draft.trim() || isThinking || isSearching || isStreaming) return;
+    const userMessage = draft.trim();
+    setDraft("");
+    await sendMessageText(userMessage);
+  }, [draft, isSearching, isStreaming, isThinking, sendMessageText, setDraft]);
+
+  const regenerateLastResponse = useCallback(async () => {
+    const base = messagesQuery.data?.data ?? [];
+    const lastUserMessage = [...base].reverse().find((message: ChatMessage) => message.role === "user");
+    if (!lastUserMessage || isThinking || isSearching || isStreaming) return;
+    await sendMessageText(lastUserMessage.content);
+  }, [isSearching, isStreaming, isThinking, messagesQuery.data?.data, sendMessageText]);
 
   const activeSession = useMemo(
     () => sessions.find((s: ChatSession) => s.id === activeSessionId) ?? null,
@@ -242,7 +308,12 @@ export function useChat() {
     messagesQuery,
     createMutation,
     sendMessage,
-    streaming,
+    regenerateLastResponse,
+    isThinking,
+    isSearching,
+    isStreaming,
+    streaming: isStreaming,
+    statusLabel,
     streamingText,
     streamError,
     draft,

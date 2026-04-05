@@ -1,3 +1,5 @@
+"use client";
+
 import type { ChatMessage } from "@/hooks/use-chat";
 
 interface MessageBubbleProps {
@@ -6,6 +8,11 @@ interface MessageBubbleProps {
 
 export function MessageBubble({ message }: MessageBubbleProps) {
   const isAssistant = message.role === "assistant";
+
+  const onCopy = async () => {
+    await navigator.clipboard.writeText(message.content);
+  };
+
   return (
     <div className={`flex ${isAssistant ? "justify-start" : "justify-end"}`}>
       <div
@@ -15,7 +22,16 @@ export function MessageBubble({ message }: MessageBubbleProps) {
             : "border border-primary/50 bg-primary/15 text-white"
         }`}
       >
-        <div className="mb-1 text-[10px] uppercase tracking-wide text-muted">{isAssistant ? "CreatorOS Agent" : "You"}</div>
+        <div className="mb-1 flex items-center justify-between gap-2 text-[10px] uppercase tracking-wide text-muted">
+          <span>{isAssistant ? "CreatorOS Agent" : "You"}</span>
+          <button
+            type="button"
+            onClick={onCopy}
+            className="rounded border border-border px-1.5 py-0.5 text-[10px] normal-case transition hover:bg-background"
+          >
+            Copy
+          </button>
+        </div>
         <div className="whitespace-pre-wrap leading-6">{message.content}</div>
         <div className="mt-2 text-[10px] text-muted">{new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
       </div>
