@@ -13,6 +13,12 @@ const CreateSchema = z.object({
   body: z.string().max(2000).optional(),
   stage: z.string().optional(),
   source: z.string().optional(),
+  platform: z.string().max(64).optional(),
+  tags: z.array(z.string().max(32)).max(12).optional(),
+  editingStartAt: z.coerce.date().optional(),
+  editingDueAt: z.coerce.date().optional(),
+  scheduledAt: z.coerce.date().optional(),
+  publishedAt: z.coerce.date().optional(),
 });
 
 export async function GET(req: NextRequest) {
@@ -44,6 +50,12 @@ export async function POST(req: NextRequest) {
     body: parsed.data.body ?? null,
     stage: parsed.data.stage ?? "idea",
     source: parsed.data.source ?? "manual",
+    platform: parsed.data.platform ?? null,
+    tags: parsed.data.tags ?? null,
+    editingStartAt: parsed.data.editingStartAt,
+    editingDueAt: parsed.data.editingDueAt,
+    scheduledAt: parsed.data.scheduledAt,
+    publishedAt: parsed.data.publishedAt,
   });
 
   return NextResponse.json({ data: created });

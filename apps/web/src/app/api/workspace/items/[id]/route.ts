@@ -8,6 +8,12 @@ const UpdateSchema = z.object({
   body: z.string().max(2000).optional(),
   stage: z.string().optional(),
   sortOrder: z.number().optional(),
+  platform: z.string().max(64).nullable().optional(),
+  tags: z.array(z.string().max(32)).max(12).nullable().optional(),
+  editingStartAt: z.coerce.date().nullable().optional(),
+  editingDueAt: z.coerce.date().nullable().optional(),
+  scheduledAt: z.coerce.date().nullable().optional(),
+  publishedAt: z.coerce.date().nullable().optional(),
 });
 
 interface RouteContext {
@@ -31,6 +37,12 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
     body: parsed.data.body,
     stage: parsed.data.stage,
     sortOrder: parsed.data.sortOrder,
+    platform: parsed.data.platform,
+    tags: parsed.data.tags,
+    editingStartAt: parsed.data.editingStartAt,
+    editingDueAt: parsed.data.editingDueAt,
+    scheduledAt: parsed.data.scheduledAt,
+    publishedAt: parsed.data.publishedAt,
   });
 
   return NextResponse.json({ data: updated });
