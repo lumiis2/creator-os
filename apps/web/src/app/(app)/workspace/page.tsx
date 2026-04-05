@@ -101,9 +101,9 @@ export default function WorkspacePage() {
 
       {editingItem ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-2xl rounded-xl border border-border bg-card p-5 shadow-xl">
+          <div className="flex h-[90vh] w-full max-w-5xl flex-col rounded-xl border border-border bg-card p-6 shadow-xl">
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-base font-semibold">Edit content</h2>
+              <h2 className="text-lg font-semibold">Edit content</h2>
               <button
                 type="button"
                 className="rounded-md border border-border px-3 py-1 text-xs hover:bg-background"
@@ -113,20 +113,20 @@ export default function WorkspacePage() {
               </button>
             </div>
 
-            <div className="grid gap-4">
+            <div className="grid flex-1 gap-4 overflow-hidden">
               <input
                 value={editorTitle}
                 onChange={(event) => setEditorTitle(event.target.value)}
                 placeholder="Title"
-                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                className="w-full rounded-md border border-border bg-background px-3 py-2.5 text-sm"
               />
 
               <textarea
                 value={editorBody}
                 onChange={(event) => setEditorBody(event.target.value)}
                 placeholder="Body"
-                rows={8}
-                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                rows={20}
+                className="h-full min-h-[360px] w-full resize-none rounded-md border border-border bg-background px-3 py-3 text-[15px] leading-7"
               />
 
               <label className="grid gap-1 text-xs text-muted">
