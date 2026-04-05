@@ -41,3 +41,22 @@ export async function listSessions(userId: string, limit = 20) {
     limit,
   });
 }
+
+export async function renameSession(sessionId: string, userId: string, title: string | null) {
+  const [updated] = await db
+    .update(chatSessions)
+    .set({ title })
+    .where(and(eq(chatSessions.id, sessionId), eq(chatSessions.userId, userId)))
+    .returning();
+
+  return updated ?? null;
+}
+
+export async function deleteSession(sessionId: string, userId: string) {
+  const [deleted] = await db
+    .delete(chatSessions)
+    .where(and(eq(chatSessions.id, sessionId), eq(chatSessions.userId, userId)))
+    .returning({ id: chatSessions.id });
+
+  return deleted ?? null;
+}
