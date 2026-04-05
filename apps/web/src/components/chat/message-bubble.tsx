@@ -1,6 +1,7 @@
 "use client";
 
 import type { ChatMessage } from "@/hooks/use-chat";
+import { MarkdownContent } from "@/components/chat/markdown-content";
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -32,7 +33,11 @@ export function MessageBubble({ message }: MessageBubbleProps) {
             Copy
           </button>
         </div>
-        <div className="whitespace-pre-wrap leading-6">{message.content}</div>
+        {isAssistant ? (
+          <MarkdownContent content={message.content} />
+        ) : (
+          <div className="whitespace-pre-wrap leading-6">{message.content}</div>
+        )}
         <div className="mt-2 text-[10px] text-muted">{new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
       </div>
     </div>

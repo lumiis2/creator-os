@@ -20,9 +20,42 @@ function fallbackDisplayNameFromEmail(email: string) {
     .replace(/\b\w/g, (c) => c.toUpperCase()) || "Creator";
 }
 
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+function isDbUnavailableError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return /(ECONNREFUSED|timeout|connect|connection)/i.test(msg);
+}
+
+function logAuthError(message: string, error: unknown, context?: Record<string, unknown>) {
+  // eslint-disable-next-line no-console
+  console.error("[auth]", message, {
+    ...(context ?? {}),
+    error: error instanceof Error
+      ? { name: error.name, message: error.message, stack: error.stack }
+      : String(error),
+  });
+}
+
 export const authConfig = {
   trustHost: true,
   session: { strategy: "jwt" },
+  logger: {
+    error(error: Error) {
+      // eslint-disable-next-line no-console
+      console.error("[next-auth]", {
+        name: error.name,
+        message: error.message,
+        stack: error.stack,
+      });
+    },
+    warn(code: string) {
+      // eslint-disable-next-line no-console
+      console.warn("[next-auth]", code);
+    },
+  },
   providers: [
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID ?? "",
@@ -32,7 +65,8 @@ export const authConfig = {
       authorize: async (credentials: Record<string, unknown> | undefined) => {
         const parsed = credentialsSchema.safeParse(credentials);
         if (!parsed.success) return null;
-        const { email, password } = parsed.data;
+        const email = normalizeEmail(parsed.data.email);
+        const { password } = parsed.data;
         const user = await db.query.users.findFirst({ where: eq(users.email, email) });
         if (!user || !user.hashedPassword) return null;
         const valid = await bcrypt.compare(password, user.hashedPassword);
@@ -44,15 +78,21 @@ export const authConfig = {
   callbacks: {
     jwt: async ({ token, user }: { token: JWT; user?: NextAuthUser | null }) => {
       const nextToken = token;
-      if (user) {
-        nextToken.sub = (user as NextAuthUser).id ?? nextToken.sub;
-        nextToken.plan = (user as NextAuthUser).plan ?? "starter";
-      } else if (!nextToken.plan && nextToken.email) {
-        const existing = await db.query.users.findFirst({ where: eq(users.email, nextToken.email) });
-        if (existing) {
-          nextToken.sub = existing.id;
-          nextToken.plan = existing.plan;
+      try {
+        if (user) {
+          nextToken.sub = (user as NextAuthUser).id ?? nextToken.sub;
+          nextToken.plan = (user as NextAuthUser).plan ?? "starter";
+        } else if (!nextToken.plan && nextToken.email) {
+          const existing = await db.query.users.findFirst({ where: eq(users.email, normalizeEmail(nextToken.email)) });
+          if (existing) {
+            nextToken.sub = existing.id;
+            nextToken.plan = existing.plan;
+          }
         }
+      } catch (error) {
+        logAuthError("JWT callback failed while enriching token", error, {
+          email: nextToken.email,
+        });
       }
       return nextToken;
     },
@@ -84,35 +124,58 @@ export const authConfig = {
       user?: { id?: string; email?: string | null } | null;
     }) => {
       if (account?.provider === "google" && profile?.email) {
-        const existing = await db.query.users.findFirst({ where: eq(users.email, profile.email) });
-        let ensuredUserId = existing?.id;
+        const email = normalizeEmail(profile.email);
+        let ensuredUserId: string | undefined;
+        try {
+          const existing = await db.query.users.findFirst({ where: eq(users.email, email) });
+          ensuredUserId = existing?.id;
 
-        if (!existing) {
-          const [user] = await db.insert(users).values({
-            email: profile.email,
-            hashedPassword: null,
-            plan: "starter",
-          }).returning();
-          await db.insert(creatorProfiles).values({ userId: user.id, onboardingDone: false });
-          ensuredUserId = user.id;
+          if (!existing) {
+            const [createdUser] = await db.insert(users).values({
+              email,
+              hashedPassword: null,
+              plan: "starter",
+            }).returning();
+            await db.insert(creatorProfiles).values({ userId: createdUser.id, onboardingDone: false });
+            ensuredUserId = createdUser.id;
+          }
+        } catch (error) {
+          const existing = await db.query.users.findFirst({ where: eq(users.email, email) }).catch(() => null);
+          if (existing?.id) {
+            ensuredUserId = existing.id;
+            logAuthError("Recovered Google provisioning after race/error", error, { email, recovered: true });
+          } else {
+            logAuthError("Failed to provision Google user", error, { email });
+            if (isDbUnavailableError(error)) {
+              return "/login?error=database_unavailable";
+            }
+            return "/login?error=account_setup_failed";
+          }
         }
 
         if (ensuredUserId) {
-          const creatorProfile = await db.query.creatorProfiles.findFirst({
-            where: eq(creatorProfiles.userId, ensuredUserId),
-          });
+          try {
+            const creatorProfile = await db.query.creatorProfiles.findFirst({
+              where: eq(creatorProfiles.userId, ensuredUserId),
+            });
 
-          const displayNameCandidate = profile.name?.trim() || fallbackDisplayNameFromEmail(profile.email);
-          if (!creatorProfile) {
-            await db.insert(creatorProfiles).values({
+            const displayNameCandidate = profile.name?.trim() || fallbackDisplayNameFromEmail(profile.email);
+            if (!creatorProfile) {
+              await db.insert(creatorProfiles).values({
+                userId: ensuredUserId,
+                displayName: displayNameCandidate,
+                onboardingDone: false,
+              }).onConflictDoNothing();
+            } else if (!creatorProfile.displayName || !creatorProfile.displayName.trim()) {
+              await db.update(creatorProfiles)
+                .set({ displayName: displayNameCandidate, updatedAt: new Date() })
+                .where(eq(creatorProfiles.userId, ensuredUserId));
+            }
+          } catch (error) {
+            logAuthError("Failed to backfill creator profile during Google sign-in", error, {
               userId: ensuredUserId,
-              displayName: displayNameCandidate,
-              onboardingDone: false,
-            }).onConflictDoNothing();
-          } else if (!creatorProfile.displayName || !creatorProfile.displayName.trim()) {
-            await db.update(creatorProfiles)
-              .set({ displayName: displayNameCandidate, updatedAt: new Date() })
-              .where(eq(creatorProfiles.userId, ensuredUserId));
+              email,
+            });
           }
         }
 
@@ -122,64 +185,78 @@ export const authConfig = {
         );
 
         if (ensuredUserId && account.access_token && hasYouTubeScope) {
-          const refreshToken = account.refresh_token ?? null;
-          const expiresAt = account.expires_at ? new Date(account.expires_at * 1000) : null;
-          const scopes = account.scope ? account.scope.split(" ").filter(Boolean) : null;
+          try {
+            const refreshToken = account.refresh_token ?? null;
+            const expiresAt = account.expires_at ? new Date(account.expires_at * 1000) : null;
+            const scopes = account.scope ? account.scope.split(" ").filter(Boolean) : null;
 
-          const current = await db.query.platformConnections.findFirst({
-            where: and(
-              eq(platformConnections.userId, ensuredUserId),
-              eq(platformConnections.platform, "youtube"),
-            ),
-          });
+            const current = await db.query.platformConnections.findFirst({
+              where: and(
+                eq(platformConnections.userId, ensuredUserId),
+                eq(platformConnections.platform, "youtube"),
+              ),
+            });
 
-          if (current) {
-            await db.update(platformConnections)
-              .set({
-                platformUserId: account.providerAccountId ?? profile.sub ?? current.platformUserId,
-                displayName: profile.name ?? current.displayName,
+            if (current) {
+              await db.update(platformConnections)
+                .set({
+                  platformUserId: account.providerAccountId ?? profile.sub ?? current.platformUserId,
+                  displayName: profile.name ?? current.displayName,
+                  accessTokenEnc: account.access_token,
+                  refreshTokenEnc: refreshToken ?? current.refreshTokenEnc,
+                  tokenExpiresAt: expiresAt,
+                  scopes,
+                  syncStatus: "idle",
+                  syncError: null,
+                })
+                .where(eq(platformConnections.id, current.id));
+            } else {
+              await db.insert(platformConnections).values({
+                userId: ensuredUserId,
+                platform: "youtube",
+                platformUserId: account.providerAccountId ?? profile.sub ?? profile.email,
+                displayName: profile.name ?? profile.email,
                 accessTokenEnc: account.access_token,
-                refreshTokenEnc: refreshToken ?? current.refreshTokenEnc,
+                refreshTokenEnc: refreshToken,
                 tokenExpiresAt: expiresAt,
                 scopes,
                 syncStatus: "idle",
-                syncError: null,
-              })
-              .where(eq(platformConnections.id, current.id));
-          } else {
-            await db.insert(platformConnections).values({
+              });
+            }
+          } catch (error) {
+            logAuthError("Failed to persist YouTube connection during Google sign-in", error, {
               userId: ensuredUserId,
-              platform: "youtube",
-              platformUserId: account.providerAccountId ?? profile.sub ?? profile.email,
-              displayName: profile.name ?? profile.email,
-              accessTokenEnc: account.access_token,
-              refreshTokenEnc: refreshToken,
-              tokenExpiresAt: expiresAt,
-              scopes,
-              syncStatus: "idle",
+              email,
             });
           }
         }
       }
 
       if (account?.provider === "credentials" && user?.id) {
-        const creatorProfile = await db.query.creatorProfiles.findFirst({
-          where: eq(creatorProfiles.userId, user.id),
-        });
+        try {
+          const creatorProfile = await db.query.creatorProfiles.findFirst({
+            where: eq(creatorProfiles.userId, user.id),
+          });
 
-        if (!creatorProfile) {
-          await db.insert(creatorProfiles).values({
-            userId: user.id,
-            displayName: user.email ? fallbackDisplayNameFromEmail(user.email) : "Creator",
-            onboardingDone: false,
-          }).onConflictDoNothing();
-        } else if (!creatorProfile.displayName || !creatorProfile.displayName.trim()) {
-          await db.update(creatorProfiles)
-            .set({
+          if (!creatorProfile) {
+            await db.insert(creatorProfiles).values({
+              userId: user.id,
               displayName: user.email ? fallbackDisplayNameFromEmail(user.email) : "Creator",
-              updatedAt: new Date(),
-            })
-            .where(eq(creatorProfiles.userId, user.id));
+              onboardingDone: false,
+            }).onConflictDoNothing();
+          } else if (!creatorProfile.displayName || !creatorProfile.displayName.trim()) {
+            await db.update(creatorProfiles)
+              .set({
+                displayName: user.email ? fallbackDisplayNameFromEmail(user.email) : "Creator",
+                updatedAt: new Date(),
+              })
+              .where(eq(creatorProfiles.userId, user.id));
+          }
+        } catch (error) {
+          logAuthError("Failed to backfill creator profile during credentials sign-in", error, {
+            userId: user.id,
+            email: user.email,
+          });
         }
       }
 
@@ -191,6 +268,7 @@ export const authConfig = {
   },
   pages: {
     signIn: "/login",
+    error: "/login",
   },
 } satisfies NextAuthConfig;
 

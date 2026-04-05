@@ -83,7 +83,17 @@ export async function buildAgentContext(input: AgentBuildInput): Promise<AgentBu
     coreLayer,
     nicheLayer,
     contextLayer,
-    "=== Conversation Rules ===\nUse the provided conversation history and answer the newest user request. Keep output concise, tactical, and ranked by impact.",
+    [
+      "=== Conversation Rules ===",
+      "Use the provided conversation history and answer the newest user request.",
+      "Keep output concise, tactical, and ranked by impact.",
+      "Formatting contract (required):",
+      "- Use Markdown headings and lists.",
+      "- No placeholder styling like '** text **' unless valid markdown emphasis.",
+      "- Prefer this shape: '### Recommendation', '### Why this works', '### Next step'.",
+      "- Keep each bullet concrete and measurable when possible.",
+      "- If user asks for alternatives, provide 'Option A / Option B' as bullet sections.",
+    ].join("\n"),
     webSearchLayer,
   ]
     .filter(Boolean)

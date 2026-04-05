@@ -22,6 +22,7 @@ export class AnthropicProvider implements AIProvider {
       system: input.systemPrompt,
       messages,
       max_tokens: input.maxTokens ?? 1000,
+      temperature: 0.3,
     });
 
     for await (const event of stream) {

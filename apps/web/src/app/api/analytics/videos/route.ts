@@ -45,8 +45,16 @@ export async function GET(req: NextRequest) {
 
   const { limit, offset, sort, direction } = parsed.data;
   const cacheKey = `analytics:videos:${session.userId}:${limit}:${offset}:${sort}:${direction}`;
-  const cached = await redis.get<VideosResponse>(cacheKey);
-  if (cached) return NextResponse.json(cached);
+  try {
+    const cached = await redis.get<VideosResponse>(cacheKey);
+    if (cached) return NextResponse.json(cached);
+  } catch (cacheError) {
+    // eslint-disable-next-line no-console
+    console.warn("[analytics-videos] cache read failed", {
+      userId: session.userId,
+      error: cacheError instanceof Error ? cacheError.message : String(cacheError),
+    });
+  }
 
   const videos = await listVideos({
     userId: session.userId,
@@ -65,6 +73,14 @@ export async function GET(req: NextRequest) {
     },
   };
 
-  await redis.set(cacheKey, responseData, { ex: CACHE_TTL_SECONDS });
+  try {
+    await redis.set(cacheKey, responseData, { ex: CACHE_TTL_SECONDS });
+  } catch (cacheError) {
+    // eslint-disable-next-line no-console
+    console.warn("[analytics-videos] cache write failed", {
+      userId: session.userId,
+      error: cacheError instanceof Error ? cacheError.message : String(cacheError),
+    });
+  }
   return NextResponse.json(responseData);
 }
