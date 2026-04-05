@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { requireAuth } from "@/lib/auth";
 import { checkAndIncrementBudget } from "@/lib/ai/token-budget";
-import { buildChatContext } from "@/lib/ai/context-builder";
+import { buildAgentContext } from "@/lib/ai/orchestrator/agent";
 import { getAIProvider } from "@/lib/ai/providers";
 import { getOrCreateSession, persistMessage } from "@creator-os/db/queries/chat";
 
@@ -10,6 +10,20 @@ const RequestSchema = z.object({
   message: z.string().min(1).max(4000),
   sessionId: z.string().uuid().optional(),
 });
+
+const STREAM_IDLE_TIMEOUT_MS = 30_000;
+const STREAM_HEARTBEAT_MS = 15_000;
+
+function timeoutResult<T>(ms: number): Promise<T | { timedOut: true }> {
+  return new Promise((resolve) => {
+    setTimeout(() => resolve({ timedOut: true }), ms);
+  });
+}
+
+function formatSseData(data: string): string {
+  const lines = data.split(/\r?\n/);
+  return `${lines.map((line) => `data: ${line}`).join("\n")}\n\n`;
+}
 
 export async function POST(req: NextRequest) {
   const session = await requireAuth();
@@ -36,7 +50,11 @@ export async function POST(req: NextRequest) {
   }
 
   const chatSession = await getOrCreateSession(session.userId, existingSessionId);
-  const { systemPrompt, messages: history } = await buildChatContext(session.userId, chatSession.id);
+  const { systemPrompt, messages: history } = await buildAgentContext({
+    userId: session.userId,
+    sessionId: chatSession.id,
+    userMessage: message,
+  });
 
   await persistMessage({
     sessionId: chatSession.id,
@@ -56,20 +74,53 @@ export async function POST(req: NextRequest) {
   let fullText = "";
 
   const readable = new ReadableStream({
-    async pull(controller) {
-      for await (const chunk of stream) {
-        fullText += chunk.text;
-        controller.enqueue(encoder.encode(`data: ${chunk.text}\n\n`));
-      }
-      controller.close();
+    async start(controller) {
+      const iterator = stream[Symbol.asyncIterator]();
+      const heartbeat = setInterval(() => {
+        controller.enqueue(encoder.encode(": keepalive\n\n"));
+      }, STREAM_HEARTBEAT_MS);
 
-      await persistMessage({
-        sessionId: chatSession.id,
-        userId: session.userId,
-        role: "assistant",
-        content: fullText,
-        tokenCount: null,
-      });
+      const closeStream = async (persist = true) => {
+        clearInterval(heartbeat);
+        if (persist && fullText.trim()) {
+          await persistMessage({
+            sessionId: chatSession.id,
+            userId: session.userId,
+            role: "assistant",
+            content: fullText,
+            tokenCount: null,
+          });
+        }
+        controller.close();
+      };
+
+      try {
+        while (true) {
+          const next = await Promise.race([
+            iterator.next(),
+            timeoutResult<Awaited<ReturnType<typeof iterator.next>>>(STREAM_IDLE_TIMEOUT_MS),
+          ]);
+
+          if ("timedOut" in next) {
+            controller.enqueue(encoder.encode("event: error\ndata: Stream timed out waiting for provider response\n\n"));
+            await closeStream(false);
+            return;
+          }
+
+          if (next.done) {
+            await closeStream(true);
+            return;
+          }
+
+          fullText += next.value.text;
+          controller.enqueue(encoder.encode(formatSseData(next.value.text)));
+        }
+      } catch {
+        controller.enqueue(encoder.encode("event: error\ndata: Stream failed unexpectedly\n\n"));
+        await closeStream(false);
+      } finally {
+        clearInterval(heartbeat);
+      }
     },
   });
 

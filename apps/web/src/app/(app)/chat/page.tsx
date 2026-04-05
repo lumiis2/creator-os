@@ -23,22 +23,33 @@ export default function ChatPage() {
   } = useChat();
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[240px_1fr]">
+    <div className="grid h-[calc(100vh-120px)] gap-4 lg:grid-cols-[280px_1fr]">
       <SessionList
         sessions={sessions}
         activeSessionId={activeSession?.id ?? null}
         onSelect={setActiveSessionId}
         onNew={() => createMutation.mutate()}
       />
-      <section className="space-y-4">
-        <header className="flex items-center justify-between">
-          <h1 className="text-lg font-semibold">{activeSession?.title ?? "Chat"}</h1>
-          {messagesQuery.isLoading && <span className="text-xs text-muted">Loading...</span>}
+
+      <section className="flex min-h-0 flex-col rounded-2xl border border-border bg-card/60">
+        <header className="flex items-center justify-between border-b border-border px-4 py-3">
+          <div>
+            <h1 className="text-sm font-semibold text-white">{activeSession?.title ?? "New conversation"}</h1>
+            <p className="text-xs text-muted">CreatorOS Agent</p>
+          </div>
+          {messagesQuery.isLoading && <span className="text-xs text-muted">Loading…</span>}
           {messagesQuery.error && <span className="text-xs text-red-400">Failed to load</span>}
         </header>
-        {streamError && <div className="text-xs text-red-400">{streamError}</div>}
-        <ChatWindow messages={messages} streamingText={streamingText} loading={messagesQuery.isLoading} />
-        <ChatInput value={draft} onChange={setDraft} onSend={sendMessage} disabled={!draft.trim() || streaming} />
+
+        {streamError && <div className="border-b border-red-500/30 bg-red-500/10 px-4 py-2 text-xs text-red-300">{streamError}</div>}
+
+        <div className="min-h-0 flex-1 p-4">
+          <ChatWindow messages={messages} streamingText={streamingText} loading={messagesQuery.isLoading} />
+        </div>
+
+        <div className="border-t border-border px-4 py-3">
+          <ChatInput value={draft} onChange={setDraft} onSend={sendMessage} disabled={!draft.trim() || streaming} />
+        </div>
       </section>
     </div>
   );
