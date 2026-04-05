@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useEffect, useRef } from "react";
 
 interface NewItemFormProps {
   onSubmit: (payload: { title: string; body?: string }) => void;
@@ -8,6 +9,13 @@ interface NewItemFormProps {
 export function NewItemForm({ onSubmit, loading }: NewItemFormProps) {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
+  const bodyRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    if (!bodyRef.current) return;
+    bodyRef.current.style.height = "0px";
+    bodyRef.current.style.height = `${bodyRef.current.scrollHeight}px`;
+  }, [body]);
 
   return (
     <div className="space-y-3 rounded-lg border border-border bg-card p-4">
@@ -19,11 +27,12 @@ export function NewItemForm({ onSubmit, loading }: NewItemFormProps) {
         className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
       />
       <textarea
+        ref={bodyRef}
         value={body}
         onChange={(event) => setBody(event.target.value)}
         placeholder="Notes"
-        rows={3}
-        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+        rows={6}
+        className="max-h-[50vh] min-h-[140px] w-full resize-none overflow-y-auto rounded-md border border-border bg-background px-3 py-3 text-sm leading-6"
       />
       <button
         onClick={() => {
