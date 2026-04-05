@@ -6,6 +6,13 @@ export interface WorkspaceItem {
   body: string | null;
   stage: string;
   source: string;
+  platform?: string | null;
+  tags?: string[] | null;
+  editingStartAt?: string | null;
+  editingDueAt?: string | null;
+  scheduledAt?: string | null;
+  publishedAt?: string | null;
+  sortOrder?: number | null;
   createdAt: string;
 }
 
@@ -16,7 +23,17 @@ async function fetchWorkspace(stage: string) {
   return res.json() as Promise<{ data: WorkspaceItem[] }>;
 }
 
-async function createItem(payload: { title: string; body?: string; stage?: string }) {
+async function createItem(payload: {
+  title: string;
+  body?: string;
+  stage?: string;
+  platform?: string;
+  tags?: string[];
+  editingStartAt?: string;
+  editingDueAt?: string;
+  scheduledAt?: string;
+  publishedAt?: string;
+}) {
   const res = await fetch("/api/workspace/items", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -26,7 +43,19 @@ async function createItem(payload: { title: string; body?: string; stage?: strin
   return res.json();
 }
 
-async function updateItem(payload: { id: string; stage?: string; title?: string; body?: string }) {
+async function updateItem(payload: {
+  id: string;
+  stage?: string;
+  title?: string;
+  body?: string;
+  sortOrder?: number;
+  platform?: string | null;
+  tags?: string[] | null;
+  editingStartAt?: string | null;
+  editingDueAt?: string | null;
+  scheduledAt?: string | null;
+  publishedAt?: string | null;
+}) {
   const res = await fetch(`/api/workspace/items/${payload.id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },

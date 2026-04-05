@@ -46,11 +46,13 @@ const markdownComponents: Components = {
   ),
   th: ({ ...props }) => <th {...props} className="border-b border-border bg-background px-3 py-2 font-semibold text-slate-100" />,
   td: ({ ...props }) => <td {...props} className="border-b border-border/70 px-3 py-2 text-slate-200" />,
-  code: ({ inline, className, children, ...props }) => {
+  code: (props) => {
+    const { className, children, ...rest } = props as any;
+    const inline = Boolean((props as any).inline);
     if (inline) {
       return (
         <code
-          {...props}
+          {...rest}
           className="rounded bg-background px-1.5 py-0.5 font-mono text-[0.92em] text-blue-200"
         >
           {children}
@@ -60,7 +62,7 @@ const markdownComponents: Components = {
 
     return (
       <pre className="my-3 overflow-x-auto rounded-xl border border-border bg-[#0a0f1d] p-3">
-        <code {...props} className={className ? `${className} font-mono text-sm text-slate-100` : "font-mono text-sm text-slate-100"}>
+        <code {...rest} className={className ? `${className} font-mono text-sm text-slate-100` : "font-mono text-sm text-slate-100"}>
           {children}
         </code>
       </pre>

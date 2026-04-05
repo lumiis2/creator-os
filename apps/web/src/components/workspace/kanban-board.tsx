@@ -3,14 +3,14 @@
 import { ItemCard } from "@/components/workspace/item-card";
 import type { WorkspaceItem } from "@/hooks/use-workspace";
 
-export const KANBAN_STAGES = ["idea", "draft", "script", "ready", "scheduled", "published"] as const;
+export const KANBAN_STAGES = ["idea", "draft", "script", "editing", "scheduled", "published"] as const;
 export type KanbanStage = (typeof KANBAN_STAGES)[number];
 
 const STAGE_LABELS: Record<KanbanStage, string> = {
   idea: "Ideas",
   draft: "Drafts",
   script: "Scripts",
-  ready: "Ready",
+  editing: "Editing",
   scheduled: "Scheduled",
   published: "Published",
 };
@@ -40,7 +40,7 @@ export function KanbanBoard({
     idea: [],
     draft: [],
     script: [],
-    ready: [],
+    editing: [],
     scheduled: [],
     published: [],
   };
