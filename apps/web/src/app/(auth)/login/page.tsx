@@ -14,7 +14,7 @@ function mapLoginError(errorCode: string | null): string | null {
     case "OAuthSignin":
     case "OAuthCallback":
     case "OAuthCreateAccount":
-      return "Google sign-in failed. Check your Google OAuth credentials and allowed redirect URI.";
+      return "OAuth sign-in failed. Check provider credentials and allowed redirect URI.";
     case "account_setup_failed":
       return "We could not finish account setup. Please try again in a few seconds.";
     case "database_unavailable":
@@ -38,6 +38,10 @@ export default function LoginPage() {
 
   const onGoogle = async () => {
     await signIn("google", { callbackUrl: "/dashboard" });
+  };
+
+  const onFacebook = async () => {
+    await signIn("facebook", { callbackUrl: "/dashboard" });
   };
 
   const onEmailSubmit = async (e: React.FormEvent) => {
@@ -82,6 +86,14 @@ export default function LoginPage() {
             className="w-full rounded-md border border-border px-4 py-2 text-sm font-semibold text-white hover:bg-background"
           >
             Continue with Google
+          </button>
+
+          <button
+            type="button"
+            onClick={onFacebook}
+            className="w-full rounded-md border border-border px-4 py-2 text-sm font-semibold text-white hover:bg-background"
+          >
+            Continue with Facebook
           </button>
 
           <button

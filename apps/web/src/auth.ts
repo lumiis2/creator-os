@@ -1,5 +1,6 @@
 import NextAuth, { type NextAuthConfig, type Session, type User as NextAuthUser } from "next-auth";
 import Google from "next-auth/providers/google";
+import FacebookProvider from "next-auth/providers/facebook";
 import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
@@ -25,8 +26,13 @@ function normalizeEmail(email: string): string {
 }
 
 function isDbUnavailableError(error: unknown): boolean {
-  const msg = error instanceof Error ? error.message : String(error);
-  return /(ECONNREFUSED|timeout|connect|connection)/i.test(msg);
+  const primary = error instanceof Error ? `${error.name} ${error.message}` : String(error);
+  const cause = error && typeof error === "object" && "cause" in error
+    ? String((error as { cause?: unknown }).cause)
+    : "";
+
+  const combined = `${primary} ${cause}`;
+  return /(ECONNREFUSED|ETIMEDOUT|connect|connection|timeout|failed query|pool|postgres|database|db)/i.test(combined);
 }
 
 function logAuthError(message: string, error: unknown, context?: Record<string, unknown>) {
@@ -37,6 +43,27 @@ function logAuthError(message: string, error: unknown, context?: Record<string, 
       ? { name: error.name, message: error.message, stack: error.stack }
       : String(error),
   });
+}
+
+function debugOAuthTokenLog(provider: string | undefined, accessToken: string | undefined) {
+  if (process.env.DEBUG_OAUTH_TOKENS !== "true") return;
+  if (!provider || !accessToken) return;
+  // eslint-disable-next-line no-console
+  console.log("[auth][debug] oauth access token", {
+    provider,
+    accessToken,
+  });
+}
+
+function debugOAuthPayloadLog(input: {
+  provider?: string;
+  account?: unknown;
+  profile?: unknown;
+  user?: unknown;
+}) {
+  if (process.env.DEBUG_OAUTH_PAYLOADS !== "true") return;
+  // eslint-disable-next-line no-console
+  console.log("[auth][debug] oauth raw payload", input);
 }
 
 export const authConfig = {
@@ -60,6 +87,15 @@ export const authConfig = {
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID ?? "",
       clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
+    }),
+    FacebookProvider({
+      clientId: process.env.FACEBOOK_CLIENT_ID,
+      clientSecret: process.env.FACEBOOK_CLIENT_SECRET,
+      authorization: {
+        params: {
+          scope: "public_profile",
+        },
+      },
     }),
     Credentials({
       authorize: async (credentials: Record<string, unknown> | undefined) => {
@@ -120,11 +156,27 @@ export const authConfig = {
         scope?: string;
         providerAccountId?: string;
       } | null;
-      profile?: { email?: string | null; name?: string | null; sub?: string | null } | null;
+      profile?: { email?: string | null; name?: string | null; sub?: string | null; id?: string | null } | null;
       user?: { id?: string; email?: string | null } | null;
     }) => {
-      if (account?.provider === "google" && profile?.email) {
-        const email = normalizeEmail(profile.email);
+      debugOAuthTokenLog(account?.provider, account?.access_token);
+      debugOAuthPayloadLog({
+        provider: account?.provider,
+        account,
+        profile,
+        user,
+      });
+
+      const isSupportedOAuthProvider = account?.provider === "google" || account?.provider === "facebook";
+
+      const oauthEmailRaw = profile?.email ?? user?.email ?? null;
+      const oauthProviderId = account?.providerAccountId ?? profile?.sub ?? profile?.id ?? null;
+      const derivedFacebookEmail = account?.provider === "facebook" && oauthProviderId
+        ? `fb_${oauthProviderId}@facebook.local`
+        : null;
+
+      if (isSupportedOAuthProvider && (oauthEmailRaw || derivedFacebookEmail)) {
+        const email = normalizeEmail(oauthEmailRaw ?? derivedFacebookEmail ?? "");
         let ensuredUserId: string | undefined;
         try {
           const existing = await db.query.users.findFirst({ where: eq(users.email, email) });
@@ -143,9 +195,16 @@ export const authConfig = {
           const existing = await db.query.users.findFirst({ where: eq(users.email, email) }).catch(() => null);
           if (existing?.id) {
             ensuredUserId = existing.id;
-            logAuthError("Recovered Google provisioning after race/error", error, { email, recovered: true });
+            logAuthError("Recovered OAuth provisioning after race/error", error, {
+              email,
+              provider: account?.provider,
+              recovered: true,
+            });
           } else {
-            logAuthError("Failed to provision Google user", error, { email });
+            logAuthError("Failed to provision OAuth user", error, {
+              email,
+              provider: account?.provider,
+            });
             if (isDbUnavailableError(error)) {
               return "/login?error=database_unavailable";
             }
@@ -159,76 +218,94 @@ export const authConfig = {
               where: eq(creatorProfiles.userId, ensuredUserId),
             });
 
-            const displayNameCandidate = profile.name?.trim() || fallbackDisplayNameFromEmail(profile.email);
+            const fallbackDisplayName = fallbackDisplayNameFromEmail(email);
+            const callbackDisplayName = profile?.name?.trim() || (user as { name?: string | null } | null)?.name?.trim() || null;
+            const displayNameCandidate = callbackDisplayName || fallbackDisplayName;
             if (!creatorProfile) {
               await db.insert(creatorProfiles).values({
                 userId: ensuredUserId,
                 displayName: displayNameCandidate,
                 onboardingDone: false,
               }).onConflictDoNothing();
-            } else if (!creatorProfile.displayName || !creatorProfile.displayName.trim()) {
+            } else if (
+              !creatorProfile.displayName
+              || !creatorProfile.displayName.trim()
+              || (
+                callbackDisplayName !== null
+                && creatorProfile.displayName.trim().toLowerCase() !== callbackDisplayName.toLowerCase()
+              )
+              || (callbackDisplayName !== null && creatorProfile.displayName.trim() === fallbackDisplayName)
+            ) {
               await db.update(creatorProfiles)
                 .set({ displayName: displayNameCandidate, updatedAt: new Date() })
                 .where(eq(creatorProfiles.userId, ensuredUserId));
             }
           } catch (error) {
-            logAuthError("Failed to backfill creator profile during Google sign-in", error, {
+            logAuthError("Failed to backfill creator profile during OAuth sign-in", error, {
               userId: ensuredUserId,
               email,
+              provider: account?.provider,
             });
           }
         }
 
-        const hasYouTubeScope = !!account.scope && (
-          account.scope.includes("https://www.googleapis.com/auth/youtube.readonly") ||
-          account.scope.includes("https://www.googleapis.com/auth/yt-analytics.readonly")
-        );
+        if (account?.provider === "google") {
+          const hasYouTubeScope = !!account.scope && (
+            account.scope.includes("https://www.googleapis.com/auth/youtube.readonly") ||
+            account.scope.includes("https://www.googleapis.com/auth/yt-analytics.readonly")
+          );
 
-        if (ensuredUserId && account.access_token && hasYouTubeScope) {
-          try {
-            const refreshToken = account.refresh_token ?? null;
-            const expiresAt = account.expires_at ? new Date(account.expires_at * 1000) : null;
-            const scopes = account.scope ? account.scope.split(" ").filter(Boolean) : null;
+          if (ensuredUserId && account.access_token && hasYouTubeScope) {
+            try {
+              const refreshToken = account.refresh_token ?? null;
+              const expiresAt = account.expires_at ? new Date(account.expires_at * 1000) : null;
+              const scopes = account.scope ? account.scope.split(" ").filter(Boolean) : null;
 
-            const current = await db.query.platformConnections.findFirst({
-              where: and(
-                eq(platformConnections.userId, ensuredUserId),
-                eq(platformConnections.platform, "youtube"),
-              ),
-            });
+              const current = await db.query.platformConnections.findFirst({
+                where: and(
+                  eq(platformConnections.userId, ensuredUserId),
+                  eq(platformConnections.platform, "youtube"),
+                ),
+              });
 
-            if (current) {
-              await db.update(platformConnections)
-                .set({
-                  platformUserId: account.providerAccountId ?? profile.sub ?? current.platformUserId,
-                  displayName: profile.name ?? current.displayName,
+              if (current) {
+                await db.update(platformConnections)
+                  .set({
+                    platformUserId: account.providerAccountId ?? profile.sub ?? current.platformUserId,
+                    displayName: profile.name ?? current.displayName,
+                    accessTokenEnc: account.access_token,
+                    refreshTokenEnc: refreshToken ?? current.refreshTokenEnc,
+                    tokenExpiresAt: expiresAt,
+                    scopes,
+                    syncStatus: "idle",
+                    syncError: null,
+                  })
+                  .where(eq(platformConnections.id, current.id));
+              } else {
+                await db.insert(platformConnections).values({
+                  userId: ensuredUserId,
+                  platform: "youtube",
+                  platformUserId: account.providerAccountId ?? profile.sub ?? profile.email,
+                  displayName: profile.name ?? profile.email,
                   accessTokenEnc: account.access_token,
-                  refreshTokenEnc: refreshToken ?? current.refreshTokenEnc,
+                  refreshTokenEnc: refreshToken,
                   tokenExpiresAt: expiresAt,
                   scopes,
                   syncStatus: "idle",
-                  syncError: null,
-                })
-                .where(eq(platformConnections.id, current.id));
-            } else {
-              await db.insert(platformConnections).values({
+                });
+              }
+            } catch (error) {
+              logAuthError("Failed to persist YouTube connection during Google sign-in", error, {
                 userId: ensuredUserId,
-                platform: "youtube",
-                platformUserId: account.providerAccountId ?? profile.sub ?? profile.email,
-                displayName: profile.name ?? profile.email,
-                accessTokenEnc: account.access_token,
-                refreshTokenEnc: refreshToken,
-                tokenExpiresAt: expiresAt,
-                scopes,
-                syncStatus: "idle",
+                email,
               });
             }
-          } catch (error) {
-            logAuthError("Failed to persist YouTube connection during Google sign-in", error, {
-              userId: ensuredUserId,
-              email,
-            });
           }
+        }
+
+        if (ensuredUserId && user) {
+          (user as { id?: string; email?: string | null }).id = ensuredUserId;
+          (user as { id?: string; email?: string | null }).email = email;
         }
       }
 
