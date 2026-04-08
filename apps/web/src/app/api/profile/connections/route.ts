@@ -11,6 +11,7 @@ export async function GET() {
     data: data.map((conn: any) => ({
       id: conn.id,
       platform: conn.platform,
+      displayName: conn.displayName ?? null,
       status: conn.syncStatus ?? "idle",
       lastSyncedAt: conn.lastSyncedAt?.toISOString() ?? null,
     })),

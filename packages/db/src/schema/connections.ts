@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, uniqueIndex, jsonb } from "drizzle-orm/pg-core";
 import { users } from "./users";
 
 export const platformConnections = pgTable("platform_connections", {
@@ -8,9 +8,11 @@ export const platformConnections = pgTable("platform_connections", {
   platformUserId: text("platform_user_id").notNull(),
   displayName: text("display_name"),
   accessTokenEnc: text("access_token_enc").notNull(),
+  tokenType: text("token_type"),
   refreshTokenEnc: text("refresh_token_enc"),
   tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }),
   scopes: text("scopes").array(),
+  meta: jsonb("meta"),
   lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
   syncStatus: text("sync_status").default("idle"),
   syncError: text("sync_error"),

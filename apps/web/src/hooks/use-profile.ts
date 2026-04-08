@@ -14,6 +14,7 @@ export interface Profile {
 export interface Connection {
   id: string;
   platform: string;
+  displayName: string | null;
   status: string;
   lastSyncedAt: string | null;
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { ConnectedAccounts } from "@/components/profile/connected-accounts";
 import { ProfileForm } from "@/components/profile/profile-form";
 import { ProfileSkeleton } from "@/components/profile/profile-skeleton";
@@ -9,6 +10,7 @@ import type { Profile } from "@/hooks/use-profile";
 
 export default function ProfilePage() {
   const { profileQuery, connectionsQuery, updateMutation } = useProfile();
+  const searchParams = useSearchParams();
 
   const [form, setForm] = useState<Profile>({
     displayName: "",
@@ -40,9 +42,27 @@ export default function ProfilePage() {
     setForm((prev: Profile) => ({ ...prev, [key]: value }));
   }
 
+  const metaStatus = searchParams.get("meta");
+  const metaReason = searchParams.get("reason");
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-semibold">Profile</h1>
+      {metaStatus === "connected" && (
+        <div className="rounded-md border border-green-500/40 bg-green-500/10 px-3 py-2 text-xs text-green-300">
+          Facebook and Instagram connected successfully.
+        </div>
+      )}
+      {metaStatus === "facebook_only" && (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+          Facebook connected, but no Instagram Business/Creator account was found linked to your page.
+        </div>
+      )}
+      {metaStatus === "error" && (
+        <div className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+          Meta connection failed{metaReason ? `: ${metaReason}` : "."}
+        </div>
+      )}
       {profileQuery.isLoading ? (
         <ProfileSkeleton />
       ) : (
