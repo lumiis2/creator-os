@@ -271,8 +271,8 @@ export const authConfig = {
               if (current) {
                 await db.update(platformConnections)
                   .set({
-                    platformUserId: account.providerAccountId ?? profile.sub ?? current.platformUserId,
-                    displayName: profile.name ?? current.displayName,
+                    platformUserId: account.providerAccountId ?? profile?.sub ?? current.platformUserId,
+                    displayName: profile?.name ?? current.displayName,
                     accessTokenEnc: account.access_token,
                     refreshTokenEnc: refreshToken ?? current.refreshTokenEnc,
                     tokenExpiresAt: expiresAt,
@@ -285,8 +285,8 @@ export const authConfig = {
                 await db.insert(platformConnections).values({
                   userId: ensuredUserId,
                   platform: "youtube",
-                  platformUserId: account.providerAccountId ?? profile.sub ?? profile.email,
-                  displayName: profile.name ?? profile.email,
+                  platformUserId: account.providerAccountId ?? profile?.sub ?? profile?.email ?? email,
+                  displayName: profile?.name ?? profile?.email ?? email,
                   accessTokenEnc: account.access_token,
                   refreshTokenEnc: refreshToken,
                   tokenExpiresAt: expiresAt,
