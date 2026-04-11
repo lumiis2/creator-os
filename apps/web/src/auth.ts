@@ -93,7 +93,7 @@ export const authConfig = {
       clientSecret: process.env.FACEBOOK_CLIENT_SECRET,
       authorization: {
         params: {
-          scope: "public_profile",
+          config_id: "1289996063063337",
         },
       },
     }),
