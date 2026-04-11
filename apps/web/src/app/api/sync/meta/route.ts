@@ -125,10 +125,10 @@ export async function POST(req: NextRequest) {
           platform: "instagram",
           snapshotDate,
           subscribers: null,
-          totalViews: insights.values.impressions ?? null,
+          totalViews: insights.values.impressions_30d ?? insights.values.impressions ?? null,
           totalVideos: null,
-          views7d: null,
-          views30d: insights.values.impressions ?? null,
+          views7d: insights.values.impressions_7d ?? insights.values.impressions ?? null,
+          views30d: insights.values.impressions_30d ?? insights.values.impressions ?? null,
           subsGained7d: null,
           avgEr7d: null,
           rawPayload: insights.raw as object,
@@ -163,8 +163,10 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    await redis.del(`analytics:snapshot:${session.userId}`);
-    await redis.del(`analytics:videos:${session.userId}:10:0:views:desc`);
+    await redis.del(`analytics:snapshot:${session.userId}:youtube`);
+    await redis.del(`analytics:snapshot:${session.userId}:instagram`);
+    await redis.del(`analytics:snapshot:${session.userId}:combined`);
+    await redis.del(`analytics:videos:${session.userId}:youtube:10:0:views:desc`);
   } catch {
     // cache is best-effort
   }

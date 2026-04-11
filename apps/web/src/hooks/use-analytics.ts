@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+export type DashboardPlatform = "youtube" | "instagram" | "combined";
+
 class HttpError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -16,6 +18,7 @@ export interface SnapshotResponse {
     avgEngagementRate7d: number | null;
     dataAsOf: string;
     platform: string;
+    reach7d?: number;
   } | null;
   syncedAt: string | null;
   synced: boolean;
@@ -23,8 +26,9 @@ export interface SnapshotResponse {
 
 export interface TrendPoint {
   date: string;
-  views7d: number | null;
-  subscribers: number | null;
+  totalViews7d: number | null;
+  youtubeViews7d: number | null;
+  instagramViews7d: number | null;
 }
 
 export interface TrendsResponse {
@@ -42,8 +46,37 @@ export interface VideosResponse {
   }>;
 }
 
+export interface InstagramInsightMetric {
+  name: string;
+  title: string;
+  description: string | null;
+  period: string | null;
+  value: number | null;
+}
+
+export interface InstagramInsightsResponse {
+  hasSnapshot: boolean;
+  mapped?: {
+    snapshotDate: string;
+    views7d: number | null;
+    views30d: number | null;
+    totalViews: number | null;
+    createdAt: string;
+  };
+  windows: {
+    last7d: InstagramInsightMetric[];
+    last30d: InstagramInsightMetric[];
+  };
+}
+
 async function fetchSnapshot(): Promise<SnapshotResponse> {
   const res = await fetch("/api/analytics/snapshot", { cache: "no-store" });
+  if (!res.ok) throw new HttpError(res.status, "Failed to load snapshot");
+  return res.json();
+}
+
+async function fetchSnapshotByPlatform(platform: DashboardPlatform): Promise<SnapshotResponse> {
+  const res = await fetch(`/api/analytics/snapshot?platform=${platform}`, { cache: "no-store" });
   if (!res.ok) throw new HttpError(res.status, "Failed to load snapshot");
   return res.json();
 }
@@ -54,14 +87,36 @@ async function fetchTrends(): Promise<TrendsResponse> {
   return res.json();
 }
 
+async function fetchTrendsByPlatform(platform: DashboardPlatform): Promise<TrendsResponse> {
+  const res = await fetch(`/api/analytics/trends?platform=${platform}`, { cache: "no-store" });
+  if (!res.ok) throw new HttpError(res.status, "Failed to load trends");
+  return res.json();
+}
+
 async function fetchVideos(): Promise<VideosResponse> {
   const res = await fetch("/api/analytics/videos?limit=10&offset=0&sort=views&direction=desc", { cache: "no-store" });
   if (!res.ok) throw new HttpError(res.status, "Failed to load videos");
   return res.json();
 }
 
-async function triggerSync() {
-  const res = await fetch("/api/analytics/sync", { method: "POST" });
+async function fetchVideosByPlatform(platform: DashboardPlatform): Promise<VideosResponse> {
+  const res = await fetch(`/api/analytics/videos?limit=10&offset=0&sort=views&direction=desc&platform=${platform}`, { cache: "no-store" });
+  if (!res.ok) throw new HttpError(res.status, "Failed to load videos");
+  return res.json();
+}
+
+async function fetchInstagramInsights(): Promise<InstagramInsightsResponse> {
+  const res = await fetch("/api/analytics/instagram/insights", { cache: "no-store" });
+  if (!res.ok) throw new HttpError(res.status, "Failed to load Instagram insights");
+  return res.json();
+}
+
+async function triggerSync(platform: DashboardPlatform) {
+  const res = await fetch("/api/analytics/sync", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ platform }),
+  });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error((data as { details?: string; error?: string }).details ?? (data as { error?: string }).error ?? "Failed to sync analytics");
@@ -69,12 +124,12 @@ async function triggerSync() {
   return data;
 }
 
-export function useAnalytics() {
+export function useAnalytics(platform: DashboardPlatform = "youtube") {
   const queryClient = useQueryClient();
 
   const snapshot = useQuery({
-    queryKey: ["snapshot"],
-    queryFn: fetchSnapshot,
+    queryKey: ["snapshot", platform],
+    queryFn: () => fetchSnapshotByPlatform(platform),
     retry: (count, error) => {
       if (error instanceof HttpError && error.status === 401) return false;
       return count < 2;
@@ -82,8 +137,8 @@ export function useAnalytics() {
   });
 
   const trends = useQuery({
-    queryKey: ["trends"],
-    queryFn: fetchTrends,
+    queryKey: ["trends", platform],
+    queryFn: () => fetchTrendsByPlatform(platform),
     retry: (count, error) => {
       if (error instanceof HttpError && error.status === 401) return false;
       return count < 2;
@@ -91,8 +146,9 @@ export function useAnalytics() {
   });
 
   const videos = useQuery({
-    queryKey: ["videos", 10, 0],
-    queryFn: fetchVideos,
+    queryKey: ["videos", platform, 10, 0],
+    queryFn: () => fetchVideosByPlatform(platform),
+    enabled: platform === "youtube",
     retry: (count, error) => {
       if (error instanceof HttpError && error.status === 401) return false;
       return count < 2;
@@ -100,13 +156,24 @@ export function useAnalytics() {
   });
 
   const syncMutation = useMutation({
-    mutationFn: triggerSync,
+    mutationFn: (syncPlatform: DashboardPlatform) => triggerSync(syncPlatform),
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["snapshot"] }),
         queryClient.invalidateQueries({ queryKey: ["trends"] }),
         queryClient.invalidateQueries({ queryKey: ["videos"] }),
+        queryClient.invalidateQueries({ queryKey: ["instagram-insights"] }),
       ]);
+    },
+  });
+
+  const instagramInsights = useQuery({
+    queryKey: ["instagram-insights"],
+    queryFn: fetchInstagramInsights,
+    enabled: platform === "instagram",
+    retry: (count, error) => {
+      if (error instanceof HttpError && error.status === 401) return false;
+      return count < 2;
     },
   });
 
@@ -114,6 +181,13 @@ export function useAnalytics() {
     snapshot,
     trends,
     videos,
+    instagramInsights,
     syncMutation,
+    platform,
+    legacy: {
+      fetchSnapshot,
+      fetchTrends,
+      fetchVideos,
+    },
   };
 }
