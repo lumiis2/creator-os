@@ -27,10 +27,7 @@ export async function GET(req: NextRequest) {
   oauthUrl.searchParams.set("client_id", appId);
   oauthUrl.searchParams.set("redirect_uri", redirectUri);
   oauthUrl.searchParams.set("response_type", "code");
-  oauthUrl.searchParams.set(
-    "scope",
-    "pages_show_list,pages_read_engagement,instagram_basic,instagram_insights",
-  );
+  oauthUrl.searchParams.set("config_id", "1289996063063337");
   oauthUrl.searchParams.set("state", state);
 
   return NextResponse.redirect(oauthUrl.toString());
