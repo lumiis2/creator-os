@@ -20,8 +20,10 @@ export const YouTubeSyncJobSchema = z.object({
 });
 
 export type YouTubeSyncJob = z.infer<typeof YouTubeSyncJobSchema>;
+export const AnalyticsSyncJobSchema = YouTubeSyncJobSchema;
+export type AnalyticsSyncJob = YouTubeSyncJob;
 
 export function startAnalyticsQueue() {
-  const queue = new Queue<YouTubeSyncJob>("analytics-sync", redisConfig);
+  const queue = new Queue<AnalyticsSyncJob>("analytics-sync", redisConfig);
   return queue;
 }

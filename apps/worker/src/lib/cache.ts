@@ -18,7 +18,11 @@ export async function invalidateAnalyticsCache(userId: string) {
   const client = getRedisClient();
   if (!client) return;
 
-  await client.del(`analytics:snapshot:${userId}`);
+  await client.del(
+    `analytics:snapshot:${userId}:youtube`,
+    `analytics:snapshot:${userId}:instagram`,
+    `analytics:snapshot:${userId}:combined`,
+  );
 
   let cursor: number | string = 0;
   do {
