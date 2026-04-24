@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { KanbanBoard, KANBAN_STAGES, type KanbanStage } from "@/components/workspace/kanban-board";
+import { NotepadPanel } from "@/components/workspace/notepad-panel";
 import { NewItemForm } from "@/components/workspace/new-item-form";
 import { useWorkspace } from "@/hooks/use-workspace";
 
@@ -103,6 +104,10 @@ export default function WorkspacePage() {
   const queryClient = useQueryClient();
   const { itemsQuery, createMutation, updateMutation, deleteMutation } = useWorkspace("");
   const items = (itemsQuery.data?.data ?? []) as WorkspaceCalendarItem[];
+
+  const createWorkspaceCard = async (payload: { title: string; body?: string; stage?: string }) => {
+    await createMutation.mutateAsync({ ...payload, stage: payload.stage ?? "idea" });
+  };
 
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dragSource, setDragSource] = useState<DragSource>(null);
@@ -325,7 +330,10 @@ export default function WorkspacePage() {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-semibold">Workspace</h1>
-      <NewItemForm onSubmit={(payload) => createMutation.mutate({ ...payload, stage: "idea" })} loading={createMutation.isPending} />
+      <div className="grid gap-4 xl:grid-cols-2">
+        <NewItemForm onSubmit={(payload) => createMutation.mutate({ ...payload, stage: "idea" })} loading={createMutation.isPending} />
+        <NotepadPanel onCreateItem={createWorkspaceCard} />
+      </div>
 
       {itemsQuery.error && <div className="text-xs text-red-400">Failed to load workspace items.</div>}
       {error && <div className="text-xs text-red-400">{error}</div>}
