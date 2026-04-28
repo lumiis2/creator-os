@@ -365,27 +365,6 @@ For detailed API documentation, see [docs/API.md](./docs/API.md) (coming soon).
 
 ---
 
-## 🚀 Deployment
-
-### Deploy to Vercel (Recommended)
-
-```bash
-# Install Vercel CLI
-npm i -g vercel
-
-# Deploy
-vercel
-```
-
-### Environment Variables
-Set the same `.env.local` variables in Vercel Dashboard → Settings → Environment Variables.
-
-### Database & Redis
-- Use **Neon** or **AWS RDS** for PostgreSQL
-- Use **Redis Cloud** or **AWS ElastiCache** for Redis
-
----
-
 ## 🎯 Roadmap
 
 ### Q1 2026
@@ -414,58 +393,11 @@ Set the same `.env.local` variables in Vercel Dashboard → Settings → Environ
 
 ---
 
-## 🤝 Contributing
-
-We love contributions! Whether it's bug fixes, feature requests, or documentation improvements, your help makes Lumiis better.
-
-### Getting Started with Contributions
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/amazing-feature`
-3. Commit changes: `git commit -m 'Add amazing feature'`
-4. Push to branch: `git push origin feature/amazing-feature`
-5. Open a Pull Request
-
-### Code Guidelines
-- Write TypeScript with strict mode enabled
-- Add tests for new features
-- Follow ESLint and Prettier rules: `pnpm run lint && pnpm run format`
-- Keep commits atomic and descriptive
-
-### Reporting Bugs
-Please use [GitHub Issues](https://github.com/yourusername/lumiis/issues) to report bugs. Include:
-- Clear description of the issue
-- Steps to reproduce
-- Expected vs actual behavior
-- Environment details (browser, OS, version)
-
----
 
 ## 📝 License
 
 This project is licensed under the **MIT License** — see [LICENSE](LICENSE) file for details.
 
 ---
-
-## 💬 Support & Community
-
-- **Issues**: [GitHub Issues](https://github.com/yourusername/lumiis/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/lumiis/discussions)
-- **Email**: support@lumiis.com
-- **Twitter**: [@lumiisai](https://twitter.com/lumiisai)
-
----
-
-## 🙏 Acknowledgments
-
-Built with passion for creators. Special thanks to the open-source community and all contributors who help make Lumiis better.
-
----
-
-<div align="center">
-
-**Made with ❤️ for creators**
-
-[Website](https://lumiis.com) • [Twitter](https://twitter.com/lumiisai) • [Discord](https://discord.gg/lumiis)
 
 </div>
