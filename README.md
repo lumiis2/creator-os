@@ -37,15 +37,15 @@ Your at-a-glance hub for all things creator. See your latest analytics, upcoming
 ### 💡 AI Chat Assistant
 Get real-time suggestions and brainstorm content ideas with an AI assistant trained on your channel data and platform trends.
 
-![AI Chat](./img/chat.jpeg)
 ![AI Chat](./img/chat1.jpeg)
+![AI Chat](./img/chat2.jpeg)
 
 ### 📋 Content Planner
 Plan your week (or month) with an intuitive drag-and-drop calendar. Organize ideas, schedule posts, and track your content pipeline.
 
-![Workspace](./img/workspace.jpeg)
 ![Workspace](./img/workspace1.jpeg)
 ![Workspace](./img/workspace2.jpeg)
+![Workspace](./img/workspace3.jpeg)
 
 ### Profile & Settings
 ![Profile](./img/profile.jpeg)
