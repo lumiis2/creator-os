@@ -96,7 +96,7 @@ async function exchangeForLongLivedToken(params: {
   return body as MetaTokenResponse;
 }
 
-async function getUserPages(userToken: string): Promise<MetaPagesResponse["data"]> {
+async function getUserPages(userToken: string): Promise<NonNullable<MetaPagesResponse["data"]>> {
   const url = new URL("https://graph.facebook.com/v19.0/me/accounts");
   url.searchParams.set("access_token", userToken);
 
@@ -106,7 +106,7 @@ async function getUserPages(userToken: string): Promise<MetaPagesResponse["data"
     throw new Error((body as any)?.error?.message ?? "Failed to fetch Facebook Pages");
   }
 
-  return (body as MetaPagesResponse).data ?? [];
+  return ((body as MetaPagesResponse).data ?? []) as NonNullable<MetaPagesResponse["data"]>;
 }
 
 async function getInstagramBusinessAccount(pageId: string, token: string): Promise<string | null> {
