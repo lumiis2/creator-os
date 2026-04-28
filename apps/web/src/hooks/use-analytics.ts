@@ -1,6 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 export type DashboardPlatform = "youtube" | "instagram" | "combined";
+export interface UseAnalyticsParams {
+  platform?: DashboardPlatform;
+  videoId?: string;
+}
 
 class HttpError extends Error {
   constructor(public status: number, message: string) {
@@ -18,10 +22,18 @@ export interface SnapshotResponse {
     avgEngagementRate7d: number | null;
     dataAsOf: string;
     platform: string;
-    reach7d?: number;
+    platformType: string;
+    averageViewPercentage: number | null;
+    impressions: number | null;
+    trafficSourceType: string | null;
+    trafficSources: Array<{ source: string; views: number }>;
+    retention: { averageViewPercentage: number; averageViewDuration: number };
+    demographics: Array<{ ageGroup: string; gender: string; count: number }>;
+    reach: { impressions: number; ctr: number };
   } | null;
   syncedAt: string | null;
   synced: boolean;
+  platform_type: string;
 }
 
 export interface TrendPoint {
@@ -38,12 +50,35 @@ export interface TrendsResponse {
 export interface VideosResponse {
   data: Array<{
     id: string;
+    dbId: string;
     title: string | null;
+    thumbnailUrl: string | null;
     publishedAt: string | null;
     views: number | null;
     likes: number | null;
     comments: number | null;
+    watchTimeHours: number;
+    subsGained: number;
+    averageViewDurationSeconds: number;
+    averageViewPercentage: number;
+    durationSecs: number;
   }>;
+  selectedVideo: {
+    id: string;
+    dbId: string;
+    title: string | null;
+    thumbnailUrl: string | null;
+    publishedAt: string | null;
+    views: number;
+    likes: number;
+    comments: number;
+    watchTimeHours: number;
+    subsGained: number;
+    averageViewDurationSeconds: number;
+    averageViewPercentage: number;
+    durationSecs: number;
+    retentionCurve: Array<{ second: number; retentionPct: number }>;
+  } | null;
 }
 
 export interface InstagramInsightMetric {
@@ -67,6 +102,34 @@ export interface InstagramInsightsResponse {
     last7d: InstagramInsightMetric[];
     last30d: InstagramInsightMetric[];
   };
+}
+
+export interface YouTubeTrafficSource {
+  source: string;
+  views: number;
+}
+
+export interface YouTubeRetention {
+  averageViewPercentage: number;
+  averageViewDuration: number;
+}
+
+export interface YouTubeDemographicPoint {
+  ageGroup: string;
+  gender: string;
+  count: number;
+}
+
+export interface YouTubeReach {
+  impressions: number;
+  ctr: number;
+}
+
+export interface YouTubeAnalyticsResponse {
+  trafficSources: YouTubeTrafficSource[];
+  retention: YouTubeRetention;
+  demographics: YouTubeDemographicPoint[];
+  reach: YouTubeReach;
 }
 
 async function fetchSnapshot(): Promise<SnapshotResponse> {
@@ -99,8 +162,17 @@ async function fetchVideos(): Promise<VideosResponse> {
   return res.json();
 }
 
-async function fetchVideosByPlatform(platform: DashboardPlatform): Promise<VideosResponse> {
-  const res = await fetch(`/api/analytics/videos?limit=10&offset=0&sort=views&direction=desc&platform=${platform}`, { cache: "no-store" });
+async function fetchVideosByPlatform(platform: DashboardPlatform, videoId?: string): Promise<VideosResponse> {
+  const params = new URLSearchParams({
+    limit: videoId ? "1" : "10",
+    offset: "0",
+    sort: "views",
+    direction: "desc",
+    platform,
+  });
+  if (videoId) params.set("videoId", videoId);
+
+  const res = await fetch(`/api/analytics/videos?${params.toString()}`, { cache: "no-store" });
   if (!res.ok) throw new HttpError(res.status, "Failed to load videos");
   return res.json();
 }
@@ -124,7 +196,9 @@ async function triggerSync(platform: DashboardPlatform) {
   return data;
 }
 
-export function useAnalytics(platform: DashboardPlatform = "youtube") {
+export function useAnalytics(input: DashboardPlatform | UseAnalyticsParams = "youtube") {
+  const platform = typeof input === "string" ? input : (input.platform ?? "youtube");
+  const videoId = typeof input === "string" ? undefined : input.videoId;
   const queryClient = useQueryClient();
 
   const snapshot = useQuery({
@@ -146,8 +220,8 @@ export function useAnalytics(platform: DashboardPlatform = "youtube") {
   });
 
   const videos = useQuery({
-    queryKey: ["videos", platform, 10, 0],
-    queryFn: () => fetchVideosByPlatform(platform),
+    queryKey: ["videos", platform, videoId ?? "all", videoId ? 1 : 10, 0],
+    queryFn: () => fetchVideosByPlatform(platform, videoId),
     enabled: platform === "youtube",
     retry: (count, error) => {
       if (error instanceof HttpError && error.status === 401) return false;
@@ -184,6 +258,7 @@ export function useAnalytics(platform: DashboardPlatform = "youtube") {
     instagramInsights,
     syncMutation,
     platform,
+    videoId,
     legacy: {
       fetchSnapshot,
       fetchTrends,

@@ -6,6 +6,7 @@ import {
   getPreviousSnapshotByPlatform,
 } from "@creator-os/db/queries/analytics";
 import { buildAnalyticsSummary } from "@/lib/analytics/compute";
+import { buildStudioFallbackSummary, buildStudioSummaryResponse, resolvePlatformType, type DashboardPlatform } from "@/lib/analytics";
 import { db, eq, platformConnections } from "@creator-os/db";
 
 interface SnapshotResponse {
@@ -18,18 +19,41 @@ interface SnapshotResponse {
     avgEngagementRate7d: number | null;
     dataAsOf: string;
     platform: string;
+    platformType: string;
+    averageViewPercentage: number | null;
+    impressions: number | null;
+    trafficSourceType: string | null;
+    trafficSources: Array<{ source: string; views: number }>;
+    retention: { averageViewPercentage: number; averageViewDuration: number };
+    demographics: Array<{ ageGroup: string; gender: string; count: number }>;
+    reach: { impressions: number; ctr: number };
   } | null;
   syncedAt: string | null;
   synced: boolean;
+  platform_type: string;
 }
 
 const CACHE_TTL_SECONDS = 3600; // 1 hour
 
-type DashboardPlatform = "youtube" | "instagram" | "combined";
-
 function resolvePlatform(input: string | null): DashboardPlatform {
-  if (input === "instagram" || input === "combined") return input;
+  if (input === "instagram" || input === "combined" || input === "facebook") return input;
   return "youtube";
+}
+
+function buildStubResponse(platform: DashboardPlatform): SnapshotResponse {
+  const summary = buildStudioFallbackSummary(platform);
+  const response = buildStudioSummaryResponse(summary);
+
+  return {
+    data: {
+      ...response,
+      dataAsOf: summary.dataAsOf.toISOString(),
+      platformType: summary.platformType,
+    },
+    syncedAt: null,
+    synced: false,
+    platform_type: resolvePlatformType(platform),
+  };
 }
 
 export async function GET(req: Request) {
@@ -65,17 +89,38 @@ export async function GET(req: Request) {
   );
 
   const hasInstagram = connections.some((conn: { platform: string }) => conn.platform === "instagram");
+  const hasFacebook = connections.some((conn: { platform: string }) => conn.platform === "facebook");
 
-  if (platform === "youtube" && (!youtubeConnection || !hasYouTubeScopes)) {
-    return NextResponse.json({ data: null, syncedAt: null, synced: false });
+  if (platform === "facebook" && !hasFacebook) {
+    const response = buildStubResponse(platform);
+    try {
+      await redis.set(cacheKey, response, { ex: CACHE_TTL_SECONDS });
+    } catch {}
+    return NextResponse.json(response);
   }
 
   if (platform === "instagram" && !hasInstagram) {
-    return NextResponse.json({ data: null, syncedAt: null, synced: false });
+    const response = buildStubResponse(platform);
+    try {
+      await redis.set(cacheKey, response, { ex: CACHE_TTL_SECONDS });
+    } catch {}
+    return NextResponse.json(response);
+  }
+
+  if (platform === "youtube" && (!youtubeConnection || !hasYouTubeScopes)) {
+    const response = buildStubResponse(platform);
+    try {
+      await redis.set(cacheKey, response, { ex: CACHE_TTL_SECONDS });
+    } catch {}
+    return NextResponse.json(response);
   }
 
   if (platform === "combined" && !hasYouTubeScopes && !hasInstagram) {
-    return NextResponse.json({ data: null, syncedAt: null, synced: false });
+    const response = buildStubResponse(platform);
+    try {
+      await redis.set(cacheKey, response, { ex: CACHE_TTL_SECONDS });
+    } catch {}
+    return NextResponse.json(response);
   }
 
   if (platform === "combined") {
@@ -115,9 +160,18 @@ export async function GET(req: Request) {
         })(),
         dataAsOf: latestDate?.toISOString() ?? new Date().toISOString(),
         platform: "combined",
+        platformType: "combined",
+        averageViewPercentage: null,
+        impressions: null,
+        trafficSourceType: null,
+        trafficSources: [],
+        retention: { averageViewPercentage: 0, averageViewDuration: 0 },
+        demographics: [],
+        reach: { impressions: 0, ctr: 0 },
       },
       syncedAt: latestDate?.toISOString() ?? null,
       synced: true,
+      platform_type: "combined",
     } satisfies SnapshotResponse;
 
     try {
@@ -129,7 +183,11 @@ export async function GET(req: Request) {
 
   const latest = await getLatestSnapshotByPlatform(session.userId, platform);
   if (!latest) {
-    return NextResponse.json({ data: null, synced: false, syncedAt: null });
+    const response = buildStubResponse(platform);
+    try {
+      await redis.set(cacheKey, response, { ex: CACHE_TTL_SECONDS });
+    } catch {}
+    return NextResponse.json(response);
   }
 
   const previous = await getPreviousSnapshotByPlatform(session.userId, platform, 7);
@@ -139,10 +197,11 @@ export async function GET(req: Request) {
     data: {
       ...summary,
       dataAsOf: summary.dataAsOf.toISOString(),
-      reach7d: platform === "instagram" ? (latest.views7d ?? 0) : undefined,
+      platformType: summary.platformType,
     },
     syncedAt: latest.createdAt?.toISOString() ?? null,
     synced: true,
+    platform_type: summary.platformType,
   };
 
   try {

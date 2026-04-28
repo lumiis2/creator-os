@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 
 function mapLoginError(errorCode: string | null): string | null {
   if (!errorCode) return null;
@@ -26,7 +26,7 @@ function mapLoginError(errorCode: string | null): string | null {
   }
 }
 
-export default function LoginPage() {
+function LoginPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const loginError = mapLoginError(searchParams.get("error"));
@@ -139,5 +139,13 @@ export default function LoginPage() {
         </p>
       </section>
     </main>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<main className="mx-auto flex min-h-screen w-full max-w-md items-center px-6" />}>
+      <LoginPageContent />
+    </Suspense>
   );
 }

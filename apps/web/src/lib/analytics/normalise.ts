@@ -40,6 +40,17 @@ const analyticsReportSchema = z.object({
   snapshotDate: z.string(),
 });
 
+function parseIsoDurationToSeconds(input: string | undefined): number | undefined {
+  if (!input) return undefined;
+  const match = input.match(/^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/);
+  if (!match) return undefined;
+  const hours = Number(match[1] ?? 0);
+  const minutes = Number(match[2] ?? 0);
+  const seconds = Number(match[3] ?? 0);
+  const total = hours * 3600 + minutes * 60 + seconds;
+  return total > 0 ? total : undefined;
+}
+
 export function normaliseChannelSnapshot(params: {
   userId: string;
   connectionId: string;
@@ -88,6 +99,8 @@ export function normaliseVideoMetrics(params: {
           .sort((a, b) => (b?.url?.length ?? 0) - (a?.url?.length ?? 0))[0]?.url
       : undefined;
 
+    const durationSecs = parseIsoDurationToSeconds(item.contentDetails?.duration);
+
     return {
       userId: params.userId,
       connectionId: params.connectionId,
@@ -96,7 +109,7 @@ export function normaliseVideoMetrics(params: {
       title: item.snippet.title,
       thumbnailUrl: thumbUrl,
       publishedAt: publishedAt ?? undefined,
-      durationSecs: undefined,
+      durationSecs,
       views,
       likes,
       comments,

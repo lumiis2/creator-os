@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ConnectedAccounts } from "@/components/profile/connected-accounts";
 import { ProfileForm } from "@/components/profile/profile-form";
@@ -8,7 +8,7 @@ import { ProfileSkeleton } from "@/components/profile/profile-skeleton";
 import { useProfile } from "@/hooks/use-profile";
 import type { Profile } from "@/hooks/use-profile";
 
-export default function ProfilePage() {
+function ProfilePageContent() {
   const { profileQuery, connectionsQuery, updateMutation } = useProfile();
   const searchParams = useSearchParams();
 
@@ -80,5 +80,13 @@ export default function ProfilePage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function ProfilePage() {
+  return (
+    <Suspense fallback={<div className="space-y-6"><h1 className="text-2xl font-semibold">Profile</h1><ProfileSkeleton /></div>}>
+      <ProfilePageContent />
+    </Suspense>
   );
 }

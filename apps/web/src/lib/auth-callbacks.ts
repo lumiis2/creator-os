@@ -35,6 +35,12 @@ function logAuthError(message: string, error: unknown, context?: Record<string, 
   });
 }
 
+function logAuthDebug(message: string, context?: Record<string, unknown>) {
+  if (process.env.NODE_ENV === "production" && process.env.AUTH_DEBUG !== "true") return;
+  // eslint-disable-next-line no-console
+  console.info("[auth-debug]", message, context ?? {});
+}
+
 export const authCallbacks = {
   jwt: async ({ token, user }: { token: JWT; user?: NextAuthUser | null }) => {
     const nextToken = token;
@@ -173,6 +179,15 @@ export const authCallbacks = {
           account.scope.includes("https://www.googleapis.com/auth/yt-analytics.readonly")
         );
 
+        logAuthDebug("Google sign-in callback received", {
+          userId: ensuredUserId,
+          providerAccountId: account.providerAccountId,
+          hasYouTubeScope,
+          hasRefreshToken: !!account.refresh_token,
+          scope: account.scope,
+          email,
+        });
+
         if (ensuredUserId && account.access_token && hasYouTubeScope) {
           try {
             const refreshToken = account.refresh_token ?? null;
@@ -199,6 +214,14 @@ export const authCallbacks = {
                   syncError: null,
                 })
                 .where(eq(platformConnections.id, current.id));
+
+              logAuthDebug("Updated existing YouTube connection", {
+                userId: ensuredUserId,
+                connectionId: current.id,
+                refreshTokenReceived: !!refreshToken,
+                refreshTokenPersisted: !!(refreshToken ?? current.refreshTokenEnc),
+                scopes,
+              });
             } else {
               await db.insert(platformConnections).values({
                 userId: ensuredUserId,
@@ -210,6 +233,12 @@ export const authCallbacks = {
                 tokenExpiresAt: expiresAt,
                 scopes,
                 syncStatus: "idle",
+              });
+
+              logAuthDebug("Created new YouTube connection", {
+                userId: ensuredUserId,
+                refreshTokenReceived: !!refreshToken,
+                scopes,
               });
             }
           } catch (error) {

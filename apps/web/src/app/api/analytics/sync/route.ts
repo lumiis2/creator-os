@@ -68,15 +68,39 @@ async function runYouTubeSyncInline(params: {
     : false;
 
   if (expiresSoon && connection.refreshTokenEnc) {
-    const refreshed = await refreshGoogleAccessToken(connection.refreshTokenEnc);
-    accessToken = refreshed.accessToken;
+    try {
+      const refreshed = await refreshGoogleAccessToken(connection.refreshTokenEnc);
+      accessToken = refreshed.accessToken;
 
-    await db.update(platformConnections)
-      .set({
-        accessTokenEnc: refreshed.accessToken,
-        tokenExpiresAt: refreshed.expiresAt,
-      })
-      .where(eq(platformConnections.id, connection.id));
+      await db.update(platformConnections)
+        .set({
+          accessTokenEnc: refreshed.accessToken,
+          tokenExpiresAt: refreshed.expiresAt,
+          syncError: null,
+          syncStatus: "idle",
+        })
+        .where(eq(platformConnections.id, connection.id));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const revoked = /invalid_grant|expired or revoked/i.test(message);
+
+      await db.update(platformConnections)
+        .set({
+          syncStatus: "error",
+          syncError: revoked
+            ? "Google refresh token expired or revoked. Reconnect YouTube from Profile."
+            : message,
+          refreshTokenEnc: revoked ? null : connection.refreshTokenEnc,
+          tokenExpiresAt: revoked ? null : connection.tokenExpiresAt,
+        })
+        .where(eq(platformConnections.id, connection.id));
+
+      if (revoked) {
+        throw new Error("Google refresh token expired or revoked. Reconnect YouTube from Profile.");
+      }
+
+      throw error;
+    }
   }
 
   const [channel, videos] = await Promise.all([

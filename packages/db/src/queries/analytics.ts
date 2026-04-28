@@ -3,7 +3,7 @@ import { db } from "../index";
 import { analyticsSnapshots } from "../schema/analytics";
 import { videoMetrics } from "../schema/videoMetrics";
 
-export type AnalyticsPlatform = "youtube" | "instagram";
+export type AnalyticsPlatform = "youtube" | "instagram" | "facebook";
 
 export async function getLatestSnapshot(userId: string) {
   return db.query.analyticsSnapshots.findFirst({
@@ -68,6 +68,8 @@ export async function listSnapshotsForPlatforms(userId: string, platforms: Analy
 
 export interface ListVideosParams {
   userId: string;
+  platform?: AnalyticsPlatform;
+  videoId?: string;
   limit?: number;
   offset?: number;
   sort?: "views" | "publishedAt";
@@ -80,8 +82,16 @@ export async function listVideos(params: ListVideosParams) {
   const sortField = params.sort === "publishedAt" ? videoMetrics.publishedAt : videoMetrics.views;
   const order = params.direction === "asc" ? asc(sortField) : desc(sortField);
 
+  const whereClauses = [eq(videoMetrics.userId, params.userId)];
+  if (params.platform) {
+    whereClauses.push(eq(videoMetrics.platform, params.platform));
+  }
+  if (params.videoId) {
+    whereClauses.push(eq(videoMetrics.platformVideoId, params.videoId));
+  }
+
   const rows = await db.query.videoMetrics.findMany({
-    where: eq(videoMetrics.userId, params.userId),
+    where: and(...whereClauses),
     limit,
     offset,
     orderBy: order,
