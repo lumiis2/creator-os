@@ -41,3 +41,4 @@ apps/*/.env.*
 .vscode/
 .idea/
 Thumbs.db
+repo-mirror.git/
