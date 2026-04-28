@@ -1,4 +1,4 @@
-# Lumiis
+# CreatorAI
 
 > **AI Growth Copilot for Creators** — Transform your content strategy with intelligent planning, AI-powered ideas, and real-time analytics.
 
