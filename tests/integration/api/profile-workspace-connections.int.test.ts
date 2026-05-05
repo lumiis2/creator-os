@@ -128,8 +128,10 @@ describe("profile, workspace and connections routes", () => {
     const postRes = await route.POST({ nextUrl: new URL("http://localhost/api/profile/connections?callbackUrl=%2Fdashboard") } as any);
     const postBody = await postRes.json();
     expect(postRes.status).toBe(200);
-    expect(postBody.connectUrl).toContain("/api/auth/signin/google");
+    expect(postBody.connectUrl).toContain("/api/auth/signin?provider=google");
     expect(postBody.connectUrl).toContain("callbackUrl=%2Fdashboard");
     expect(postBody.connectUrl).toContain("youtube.readonly");
+    expect(postBody.connectUrl).toContain("access_type=offline");
+    expect(postBody.connectUrl).toContain("prompt=consent");
   });
 });

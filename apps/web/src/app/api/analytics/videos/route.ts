@@ -107,7 +107,7 @@ export async function GET(req: NextRequest) {
     const mapped = mapVideoPerformance([video]);
     if (!mapped) {
       return {
-        id: video.platformVideoId,
+        id: video.platformVideoId ?? video.id,
         dbId: video.id,
         title: video.title,
         thumbnailUrl: video.thumbnailUrl,

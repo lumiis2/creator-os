@@ -24,7 +24,21 @@ export async function POST(req: NextRequest) {
 
   const callbackUrl = req.nextUrl.searchParams.get("callbackUrl") ?? "/profile";
   const scope = "openid email profile https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/yt-analytics.readonly";
-  const connectUrl = `/api/auth/signin/google?callbackUrl=${encodeURIComponent(callbackUrl)}&scope=${encodeURIComponent(scope)}&access_type=offline&prompt=consent`;
+  const connectUrl = `/api/auth/signin?provider=google&callbackUrl=${encodeURIComponent(callbackUrl)}&scope=${encodeURIComponent(scope)}&access_type=offline&prompt=consent`;
+
+  // Debug: surface config and generated URL during YouTube connect flow
+  // eslint-disable-next-line no-console
+  console.warn("[connect-youtube] connect url", {
+    callbackUrl,
+    connectUrl,
+    env: {
+      hasGoogleClientId: Boolean(process.env.GOOGLE_CLIENT_ID),
+      hasGoogleClientSecret: Boolean(process.env.GOOGLE_CLIENT_SECRET),
+      hasAuthSecret: Boolean(process.env.AUTH_SECRET),
+      hasNextAuthSecret: Boolean(process.env.NEXTAUTH_SECRET),
+      nextAuthUrl: process.env.NEXTAUTH_URL ?? null,
+    },
+  });
 
   return NextResponse.json({ connectUrl });
 }
