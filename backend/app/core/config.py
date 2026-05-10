@@ -1,6 +1,6 @@
-from pydantic_settings import BaseSettings
-from typing import Optional
 from enum import Enum
+
+from pydantic_settings import BaseSettings
 
 
 class Environment(str, Enum):
@@ -19,13 +19,13 @@ def _normalize_db_url(url: str) -> str:
     """
     if not url:
         return url
-    
+
     # Step 1: Convert driver
     if url.startswith("postgres://"):
         url = url.replace("postgres://", "postgresql+asyncpg://", 1)
     elif url.startswith("postgresql://") and not url.startswith("postgresql+asyncpg://"):
         url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
-    
+
     # Step 2: Convert sslmode to asyncpg ssl parameter
     # asyncpg uses ssl=require, not ?sslmode=require
     if "?sslmode=require" in url:
@@ -35,7 +35,7 @@ def _normalize_db_url(url: str) -> str:
     elif "&sslmode=require" in url:
         url = url.replace("&sslmode=require", "")
         url += "&ssl=require"
-    
+
     return url
 
 
@@ -60,15 +60,15 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     JWT_ALGORITHM: str = "HS256"
-    
+
     # Supabase Auth
-    SUPABASE_JWT_SECRET: Optional[str] = None
-    SUPABASE_JWT_PUBLIC_KEY: Optional[str] = None
-    SUPABASE_JWKS_URL: Optional[str] = None
-    SUPABASE_JWT_AUDIENCE: Optional[str] = "authenticated"
-    SUPABASE_JWT_ISSUER: Optional[str] = None
-    SUPABASE_URL: Optional[str] = None
-    SUPABASE_ANON_KEY: Optional[str] = None
+    SUPABASE_JWT_SECRET: str | None = None
+    SUPABASE_JWT_PUBLIC_KEY: str | None = None
+    SUPABASE_JWKS_URL: str | None = None
+    SUPABASE_JWT_AUDIENCE: str | None = "authenticated"
+    SUPABASE_JWT_ISSUER: str | None = None
+    SUPABASE_URL: str | None = None
+    SUPABASE_ANON_KEY: str | None = None
 
     class Config:
         env_file = ".env"

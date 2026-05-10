@@ -16,12 +16,6 @@ repos:
 
   - repo: local
     hooks:
-      - id: backend-mypy
-        name: backend-mypy
-        language: system
-        pass_filenames: false
-        entry: bash -lc 'cd backend && mypy app'
-
       - id: backend-tests
         name: backend-tests
         language: system

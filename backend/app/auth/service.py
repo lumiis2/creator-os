@@ -20,7 +20,7 @@ from app.core.config import settings
 @dataclass(frozen=True, slots=True)
 class TokenClaims:
     """Parsed and validated JWT token claims."""
-    
+
     user_id: UUID
     email: str | None
     raw: dict[str, Any]
@@ -34,10 +34,10 @@ class JWTValidationError(ValueError):
 def _resolve_verification_key() -> tuple[str, list[str]]:
     """
     Resolve the JWT verification key based on environment configuration.
-    
+
     Returns:
         Tuple of (verification_key, algorithms)
-        
+
     Raises:
         JWTValidationError: If no valid key is configured
     """
@@ -75,13 +75,13 @@ def _resolve_verification_key() -> tuple[str, list[str]]:
 def validate_jwt(token: str) -> TokenClaims:
     """
     Validate a Supabase JWT token and extract claims.
-    
+
     Args:
         token: Bearer token (JWT)
-        
+
     Returns:
         TokenClaims with extracted user_id and email
-        
+
     Raises:
         JWTValidationError: If token is invalid or verification fails
     """
@@ -114,20 +114,20 @@ def validate_jwt(token: str) -> TokenClaims:
         except (InvalidTokenError, ValueError, TypeError) as exc:
             raise JWTValidationError(f"Invalid JWT token: {str(exc)}") from exc
     else:
-        decode_kwargs: dict[str, Any] = {
+        decode_kwargs_static: dict[str, Any] = {
             "key": verification_key,
             "algorithms": algorithms,
             "options": {"require": ["exp", "sub"]},
         }
-    
+
         # Optional claim validation
         if settings.SUPABASE_JWT_AUDIENCE:
-            decode_kwargs["audience"] = settings.SUPABASE_JWT_AUDIENCE
+            decode_kwargs_static["audience"] = settings.SUPABASE_JWT_AUDIENCE
         if settings.SUPABASE_JWT_ISSUER:
-            decode_kwargs["issuer"] = settings.SUPABASE_JWT_ISSUER
+            decode_kwargs_static["issuer"] = settings.SUPABASE_JWT_ISSUER
 
         try:
-            payload = jwt.decode(token, **decode_kwargs)
+            payload = jwt.decode(token, **decode_kwargs_static)
         except (InvalidTokenError, ValueError, TypeError) as exc:
             raise JWTValidationError(f"Invalid JWT token: {str(exc)}") from exc
 

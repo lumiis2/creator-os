@@ -1,12 +1,12 @@
 """Integration tests for auth endpoints and full flows."""
 
 import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app.models import User, Profile
+from app.models import Profile, User
 
 
 class TestAuthEndpoints:

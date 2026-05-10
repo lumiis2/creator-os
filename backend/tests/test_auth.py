@@ -4,15 +4,14 @@ import uuid
 from unittest.mock import patch
 
 import pytest
-from jwt import InvalidTokenError
 from fastapi import HTTPException
+from jwt import InvalidTokenError
 from sqlalchemy import select
 
-from app.auth.dependencies import get_current_user_claims, get_current_user
+from app.auth.dependencies import get_current_user, get_current_user_claims
 from app.auth.schemas import TokenData
-from app.auth.service import validate_jwt, JWTValidationError
-from app.models import User, Profile
-
+from app.auth.service import JWTValidationError, validate_jwt
+from app.models import Profile, User
 
 # ============================================================================
 # JWT Validation Tests

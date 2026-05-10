@@ -5,22 +5,21 @@ Revises: None
 Create Date: 2026-05-07 00:00:00.000000
 
 """
-from typing import Sequence, Union
+from collections.abc import Sequence
 from urllib.parse import urlparse
 
-from alembic import op
 import sqlalchemy as sa
 from pgvector.sqlalchemy import Vector
 from sqlalchemy.dialects.postgresql import ENUM, JSONB
 
+from alembic import op
 from app.core.config import settings
-
 
 # revision identifiers, used by Alembic.
 revision: str = "20260507_01_baseline"
-down_revision: Union[str, None] = None
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = None
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def _is_local_database() -> bool:

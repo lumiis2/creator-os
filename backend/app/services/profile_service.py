@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-from typing import Sequence
 from uuid import UUID
 
 from fastapi import HTTPException, status
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..auth.schemas import OnboardingUpdate
 from ..models import Profile, SocialAccount
 from ..repositories.base import BaseRepository
-from ..auth.schemas import OnboardingUpdate
 
 
 class ProfileService:
@@ -57,7 +56,7 @@ class ProfileService:
             profile.ai_behavior = payload.ai_behavior
         if payload.global_strategy is not None:
             profile.global_strategy = payload.global_strategy
-        
+
         profile.onboarding_completed = True
 
         if payload.first_account is not None:

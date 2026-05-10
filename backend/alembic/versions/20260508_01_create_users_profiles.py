@@ -5,10 +5,10 @@ Revises: 20260507_01_baseline
 Create Date: 2026-05-08 00:00:00.000000
 
 """
-from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "20260508_01_create_users_profiles"
@@ -60,7 +60,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_index("idx_profiles_user_id", table_name="profiles")
     op.drop_table("profiles")
-    
+
     op.drop_index("idx_users_email", table_name="users")
     op.drop_index("idx_users_supabase_user_id", table_name="users")
     op.drop_table("users")

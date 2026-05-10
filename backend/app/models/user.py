@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, Text, Index
+from sqlalchemy import DateTime, Index, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -11,7 +11,7 @@ from .base import Base
 
 class User(Base):
     """Application user model synced from Supabase Auth."""
-    
+
     __tablename__ = "users"
 
     id: Mapped[uuid.UUID] = mapped_column(

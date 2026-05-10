@@ -5,11 +5,11 @@ Revises: 20260508_01_create_users_profiles
 Create Date: 2026-05-09 00:00:00.000000
 
 """
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import text
 
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "20260509_01_add_ai_settings_global_strategy_to_profile"
@@ -29,7 +29,7 @@ def upgrade() -> None:
             server_default=text("'{}'::jsonb"),
         ),
     )
-    
+
     # Add global_strategy column (Text)
     op.add_column(
         'profiles',

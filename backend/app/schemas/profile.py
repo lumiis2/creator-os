@@ -4,12 +4,11 @@ from uuid import UUID
 from pydantic import Field
 
 from .base import ORMBase
-from .types import AISettings
 
 
 class ProfileCreate(ORMBase):
     """Create payload for profile (used in onboarding flow)."""
-    
+
     niche: str | None = None
     creator_goal: str | None = None
     posting_frequency_goal: int | None = None
@@ -21,7 +20,7 @@ class ProfileCreate(ORMBase):
 
 class ProfileUpdate(ORMBase):
     """Update payload for profile."""
-    
+
     niche: str | None = None
     creator_goal: str | None = None
     posting_frequency_goal: int | None = None
@@ -33,7 +32,7 @@ class ProfileUpdate(ORMBase):
 
 class ProfileRead(ORMBase):
     """Profile read response (reflects Profile model fields)."""
-    
+
     id: UUID
     user_id: UUID
     niche: str | None = None

@@ -1,12 +1,13 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Text, String, Integer, Index
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func, text
 
 from app.models.types import JSONB
+
 from .base import Base
 
 
@@ -24,7 +25,7 @@ class Profile(Base):
         nullable=False,
         index=True,
     )
-    
+
     # Profile-specific fields per spec
     niche: Mapped[str | None] = mapped_column(String(255), nullable=True)
     creator_goal: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -48,7 +49,7 @@ class Profile(Base):
         default=False,
         server_default=text("false"),
     )
-    
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

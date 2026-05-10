@@ -1,6 +1,6 @@
 """Base repository for CRUD operations."""
 
-from typing import Generic, List, TypeVar
+from typing import Generic, TypeVar
 from uuid import UUID
 
 from sqlalchemy import select
@@ -27,11 +27,11 @@ class BaseRepository(Generic[T]):
         """Get object by ID."""
         return await self.db.get(self.model, id)
 
-    async def get_all(self, skip: int = 0, limit: int = 10) -> List[T]:
+    async def get_all(self, skip: int = 0, limit: int = 10) -> list[T]:
         """Get all objects with pagination."""
         stmt = select(self.model).offset(skip).limit(limit)
         result = await self.db.execute(stmt)
-        return result.scalars().all()
+        return list(result.scalars().all())
 
     async def update(self, obj: T) -> T:
         """Update an object."""

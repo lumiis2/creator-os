@@ -169,4 +169,3 @@ Notes & Observations
 If you want, next steps:
 - Produce a PlantUML ER diagram file or a SQL `CREATE TABLE` dump generated from models.
 - Export this documentation to `docs/db_schema.md` (already created here) or to your project README.
-

@@ -3,23 +3,23 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..schemas.types import NicheData
 
 
 class TokenData(BaseModel):
     """JWT token parsed data."""
-    
+
     user_id: UUID
     email: str | None = None
 
 
 class UserRead(BaseModel):
     """User model for API responses."""
-    
+
     model_config = ConfigDict(from_attributes=True)
-    
+
     id: UUID
     email: str
     full_name: str | None = None
@@ -31,9 +31,9 @@ class UserRead(BaseModel):
 
 class ProfileRead(BaseModel):
     """Profile model for API responses."""
-    
+
     model_config = ConfigDict(from_attributes=True)
-    
+
     id: UUID
     user_id: UUID
     niche: str | None = None
@@ -49,7 +49,7 @@ class ProfileRead(BaseModel):
 
 class ProfileUpdate(BaseModel):
     """Profile update payload."""
-    
+
     niche: str | None = None
     creator_goal: str | None = None
     posting_frequency_goal: int | None = None
@@ -59,7 +59,7 @@ class ProfileUpdate(BaseModel):
 
 class FirstAccountOnboarding(BaseModel):
     """First social account details during onboarding."""
-    
+
     platform: str
     platform_handle: str
     platform_user_id: str
@@ -69,32 +69,32 @@ class FirstAccountOnboarding(BaseModel):
 
 class OnboardingUpdate(BaseModel):
     """Onboarding payload with profile and first social account data.
-    
+
     Note: full_name, avatar_url updates should be done via User model,
     not Profile model. This schema only handles Profile-specific fields.
     """
-    
+
     # Profile fields
     niche: str | None = None
     creator_goal: str | None = None
     posting_frequency_goal: int | None = None
     ai_behavior: dict = Field(default_factory=dict)
     global_strategy: str | None = None
-    
+
     # First social account (optional)
     first_account: FirstAccountOnboarding | None = None
 
 
 class UserProfileResponse(BaseModel):
     """Combined user and profile response."""
-    
+
     user: UserRead
     profile: ProfileRead
 
 
 class AuthStatusResponse(BaseModel):
     """Auth system health check response."""
-    
+
     status: str = "ok"
     environment: str
     auth_configured: bool

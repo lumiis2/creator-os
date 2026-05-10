@@ -8,11 +8,11 @@ from sqlalchemy.ext.compiler import compiles
 class JSONB(TypeDecorator):
     """
     A JSONB type that works with both PostgreSQL (uses JSONB) and SQLite (uses JSON).
-    
+
     PostgreSQL: Uses native JSONB type with efficient indexing and operators
     SQLite: Falls back to JSON type (SQLite doesn't have JSONB)
     """
-    
+
     impl = JSON
     cache_ok = True
 

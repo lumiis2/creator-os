@@ -10,16 +10,15 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import (
-    get_current_user,
-    get_current_user_id,
-    UserProfileResponse,
     AuthStatusResponse,
-    UserRead,
     ProfileRead,
+    UserProfileResponse,
+    UserRead,
+    get_current_user,
 )
-from app.core.database import get_db
 from app.core.config import settings
-from app.models import User, Profile
+from app.core.database import get_db
+from app.models import Profile, User
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -31,19 +30,19 @@ async def get_me(
 ) -> UserProfileResponse:
     """
     Get current authenticated user and their profile.
-    
+
     Requires: Valid Bearer JWT token in Authorization header.
-    
+
     Returns:
         User and Profile data
-        
+
     Raises:
         401: Invalid or missing token
         404: User not found (shouldn't happen)
     """
     # Refresh to get relationships
     await db.refresh(current_user, ["profile"])
-    
+
     profile = current_user.profile
     if not profile:
         # Shouldn't happen, but ensure profile exists
@@ -51,7 +50,7 @@ async def get_me(
         db.add(profile)
         await db.commit()
         await db.refresh(profile)
-    
+
     return UserProfileResponse(
         user=UserRead.model_validate(current_user),
         profile=ProfileRead.model_validate(profile),
@@ -62,10 +61,10 @@ async def get_me(
 async def health_check() -> AuthStatusResponse:
     """
     Check authentication system health and configuration status.
-    
+
     Returns:
         AuthStatusResponse with status, environment, and auth configuration.
-        
+
     Note:
         This endpoint does NOT require authentication.
         It's useful for checking if the auth system is properly configured.
@@ -75,14 +74,14 @@ async def health_check() -> AuthStatusResponse:
         or settings.SUPABASE_JWT_PUBLIC_KEY
         or settings.SUPABASE_JWKS_URL
     )
-    
+
     message = None
     if not auth_configured:
         message = (
             "Warning: Auth not configured. Set SUPABASE_JWKS_URL, "
             "SUPABASE_JWT_SECRET, or SUPABASE_JWT_PUBLIC_KEY."
         )
-    
+
     return AuthStatusResponse(
         status="ok",
         environment=settings.ENVIRONMENT.value,
