@@ -1,0 +1,30 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-merge-conflict
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.11.10
+    hooks:
+      - id: ruff
+        args: ["--fix"]
+        files: ^backend/
+
+  - repo: local
+    hooks:
+      - id: backend-mypy
+        name: backend-mypy
+        language: system
+        pass_filenames: false
+        entry: bash -lc 'cd backend && mypy app'
+
+      - id: backend-tests
+        name: backend-tests
+        language: system
+        pass_filenames: false
+        stages: [push]
+        entry: bash -lc 'cd backend && python3 -m pytest tests -q'

@@ -1,0 +1,10 @@
+# Development-only dependencies (not runtime)
+-r requirements.txt
+-r requirements-test.txt
+
+# Quality gates / local tooling
+pre-commit==3.7.1
+ruff==0.11.10
+mypy==1.10.0
+bandit==1.7.9
+pip-audit==2.7.3

@@ -1,0 +1,257 @@
+# CreatorOS .gitignore
+
+# ========== ENVIRONMENT & SECRETS ==========
+.env
+.env.local
+.env.*.local
+.env.*.example
+*.key
+*.pem
+*.crt
+
+# ========== PYTHON ==========
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# PEP 582
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# ========== IDE & EDITORS ==========
+# VS Code
+.vscode/
+*.code-workspace
+.history/
+
+# PyCharm
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+.vim/
+*.swp
+*.swo
+*~
+
+# Emacs
+*~
+\#*\#
+.\#*
+
+# Atom
+.atom/
+
+# ========== OPERATING SYSTEM ==========
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+*.swp
+.env.local.php
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+.directory
+.Trash-*
+
+# ========== NODE / FRONTEND ==========
+node_modules/
+npm-debug.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+.next/
+out/
+build/
+dist/
+
+# ========== DATABASE & DATA ==========
+# Local Postgres
+postgresql/
+postgres_data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Redis
+redis-data/
+dump.rdb
+
+# Migrations backup
+migrations/versions/*.bak
+
+# ========== DOCKER ==========
+.docker/
+docker-compose.override.yml
+.dockerignore
+
+# ========== MISC ==========
+*.tmp
+*.bak
+*.backup
+*.swp
+.DS_Store
+Thumbs.db
+*.pid
+*.seed
+*.pid.lock
+
+# OS temp files
+tmp/
+temp/
+
+# Local test files
+test_output/
+test_results/
+
+# ========== PROJECT SPECIFIC ==========
+# Backend
+backend/.venv/
+backend/venv/
+backend/*.egg-info/
+backend/.pytest_cache/
+
+# Frontend
+frontend/.next/
+frontend/out/
+frontend/build/
+
+# Logs
+logs/
+*.log
+
+# IDEs project specific
+.vscode/settings.json
+.idea/misc.xml
+.idea/modules.xml
+.idea/workspace.xml

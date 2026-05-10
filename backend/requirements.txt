@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+pydantic-settings
+pydantic
+alembic
+asyncpg
+redis
+celery
+pgvector
+httpx
+python-dotenv
+pytz
+PyJWT[crypto]
