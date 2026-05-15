@@ -7,6 +7,12 @@ from .creative_reference import (
     ReferenceRead,
 )
 from .daily_metric import DailyMetricCreate, DailyMetricRead
+from .onboarding_state import (
+    OnboardingCompleteResponse,
+    OnboardingSocialStatusRead,
+    OnboardingStateRead,
+    OnboardingStateUpdate,
+)
 from .profile import ProfileCreate, ProfileRead, ProfileUpdate
 from .project import ProjectCreate, ProjectRead
 from .social_account import SocialAccountCreate, SocialAccountRead
@@ -28,6 +34,10 @@ __all__ = [
     "ReferenceCreate",
     "ReferenceMetadata",
     "ReferenceRead",
+    "OnboardingCompleteResponse",
+    "OnboardingSocialStatusRead",
+    "OnboardingStateRead",
+    "OnboardingStateUpdate",
     "NicheData",
     "ProfileCreate",
     "ProfileRead",

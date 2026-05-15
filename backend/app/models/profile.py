@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func, text
@@ -80,6 +80,13 @@ class Profile(Base):
         back_populates="profile",
         cascade="all, delete-orphan",
     )
+    onboarding_states = relationship(
+        "OnboardingState",
+        back_populates="profile",
+        cascade="all, delete-orphan",
+    )
 
     __table_args__ = (
-        Index("idx_profiles_user_id", "user_id"),    )
+        UniqueConstraint("user_id", name="uq_profiles_user_id"),
+        Index("idx_profiles_user_id", "user_id"),
+    )

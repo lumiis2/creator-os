@@ -18,7 +18,8 @@ from app.auth import (
 )
 from app.core.config import settings
 from app.core.database import get_db
-from app.models import Profile, User
+from app.models import User
+from app.services.user_provisioning_service import UserProvisioningService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -40,16 +41,11 @@ async def get_me(
         401: Invalid or missing token
         404: User not found (shouldn't happen)
     """
+    service = UserProvisioningService(db)
+    profile = await service.ensure_profile_for_user(current_user)
+
     # Refresh to get relationships
     await db.refresh(current_user, ["profile"])
-
-    profile = current_user.profile
-    if not profile:
-        # Shouldn't happen, but ensure profile exists
-        profile = Profile(user_id=current_user.id)
-        db.add(profile)
-        await db.commit()
-        await db.refresh(profile)
 
     return UserProfileResponse(
         user=UserRead.model_validate(current_user),

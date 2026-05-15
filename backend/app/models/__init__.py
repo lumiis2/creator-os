@@ -3,7 +3,17 @@ from .base import Base
 from .chat import ChatMessage, ChatSession
 from .creative_reference import CreativeReference, project_references
 from .daily_metric import DailyMetric
-from .enums import ChatRole, MediaType, PlatformType, ProjectStatus, SourceType
+from .enums import (
+    ChatRole,
+    MediaType,
+    OnboardingStatus,
+    PlatformAccountType,
+    PlatformType,
+    ProjectStatus,
+    SocialAccountStatus,
+    SourceType,
+)
+from .onboarding_state import OnboardingState
 from .profile import Profile
 from .project import Project
 from .social_account import SocialAccount
@@ -18,12 +28,16 @@ __all__ = [
     "DailyMetric",
     "CreativeReference",
     "MediaType",
+    "OnboardingState",
+    "OnboardingStatus",
+    "PlatformAccountType",
     "PlatformType",
     "Profile",
     "Project",
     "ProjectStatus",
     "project_references",
     "SocialAccount",
+    "SocialAccountStatus",
     "SourceType",
     "User",
 ]

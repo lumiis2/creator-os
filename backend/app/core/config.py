@@ -1,5 +1,9 @@
 from enum import Enum
 
+import json
+from pathlib import Path
+
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -39,6 +43,10 @@ def _normalize_db_url(url: str) -> str:
     return url
 
 
+_current_dir = Path(__file__).resolve().parent
+_repo_root = _current_dir.parents[2]
+
+
 class Settings(BaseSettings):
     # Environment
     ENVIRONMENT: Environment = Environment.LOCAL
@@ -53,7 +61,11 @@ class Settings(BaseSettings):
     DEBUG: bool = False
 
     # CORS
-    CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:8000"]
+    CORS_ORIGINS: list[str] = [
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://localhost:8000",
+    ]
 
     # JWT & Supabase
     SECRET_KEY: str = "your-secret-key-change-in-production"
@@ -70,9 +82,49 @@ class Settings(BaseSettings):
     SUPABASE_URL: str | None = None
     SUPABASE_ANON_KEY: str | None = None
 
+    # Frontend
+    FRONTEND_URL: str = "http://localhost:5173"
+
+    # OAuth (YouTube/Google)
+    GOOGLE_CLIENT_ID: str | None = None
+    GOOGLE_CLIENT_SECRET: str | None = None
+    GOOGLE_REDIRECT_URI: str | None = None
+
+    # OAuth (Meta)
+    META_APP_ID: str | None = None
+    META_APP_SECRET: str | None = None
+    META_REDIRECT_URI: str | None = None
+
+    # Token encryption
+    ENCRYPTION_KEY: str | None = None
+
+    # AI
+    AI_PROVIDER: str | None = None
+    GROQ_API_KEY: str | None = None
+    GROQ_MODEL: str | None = None
+
+    # Web Search
+    WEB_SEARCH_API_KEY: str | None = None
+    WEB_SEARCH_ENABLED: bool = False
+
     class Config:
-        env_file = ".env"
+        env_file = (
+            _current_dir / ".env",
+            _repo_root / ".env",
+        )
         case_sensitive = True
+
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def _parse_cors_origins(cls, value):
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+                if isinstance(parsed, list):
+                    return parsed
+            except json.JSONDecodeError:
+                return [origin.strip() for origin in value.split(",") if origin.strip()]
+        return value
 
 
 settings = Settings()

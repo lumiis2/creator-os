@@ -9,13 +9,13 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import Depends, Header, HTTPException, status
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.schemas import TokenData
 from app.auth.service import JWTValidationError, validate_jwt
 from app.core.database import get_db
-from app.models import Profile, User
+from app.models import User
+from app.services.user_provisioning_service import UserProvisioningService
 
 logger = logging.getLogger(__name__)
 
@@ -91,33 +91,8 @@ async def get_current_user(
         HTTPException: 500 if DB operation fails
     """
     try:
-        # Try to find existing user by supabase_user_id using ORM
-        stmt = select(User).where(User.supabase_user_id == token_data.user_id)
-        result = await db.execute(stmt)
-        user = result.scalar_one_or_none()
-
-        if user:
-            return user
-
-        # Create new user if not found
-        user = User(
-            supabase_user_id=token_data.user_id,
-            email=token_data.email or f"user-{token_data.user_id}@unknown",
-            auth_provider="supabase",
-        )
-        db.add(user)
-        await db.flush()
-
-        # Create empty profile
-        profile = Profile(user_id=user.id)
-        db.add(profile)
-        await db.flush()
-
-        await db.commit()
-        await db.refresh(user)
-
-        return user
-
+        service = UserProvisioningService(db)
+        return await service.provision_from_token(token_data)
     except Exception as exc:
         await db.rollback()
         logger.exception(f"Error in get_current_user for {token_data.user_id}: {exc}")

@@ -8,6 +8,22 @@ class PlatformType(StrEnum):
     FACEBOOK = "facebook"
 
 
+class SocialAccountStatus(StrEnum):
+    PENDING = "pending"
+    CONNECTED = "connected"
+    EXPIRED = "expired"
+    REVOKED = "revoked"
+    ERROR = "error"
+
+
+class PlatformAccountType(StrEnum):
+    CHANNEL = "channel"
+    PAGE = "page"
+    BUSINESS = "business"
+    PROFILE = "profile"
+    OTHER = "other"
+
+
 class ProjectStatus(StrEnum):
     IDEA = "idea"
     DRAFTING = "drafting"
@@ -36,3 +52,9 @@ class MediaType(StrEnum):
     VIDEO = "video"
     IMAGE = "image"
     TEXT = "text"
+
+
+class OnboardingStatus(StrEnum):
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    ABANDONED = "abandoned"

@@ -3,7 +3,7 @@ import contextlib
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import analytics, workspace
+from app.api import analytics, connect, onboarding, workspace
 from app.api.v1.endpoints import auth as auth_v1
 from app.core.config import settings
 from app.core.database import close_db
@@ -45,6 +45,8 @@ def health_check():
 # Include routers
 app.include_router(auth_v1.router)
 app.include_router(analytics.router)
+app.include_router(connect.router)
+app.include_router(onboarding.router)
 app.include_router(workspace.router)
 
 
